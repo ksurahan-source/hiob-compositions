@@ -1,0 +1,23 @@
+{
+  "name": "@hiob/compositions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline",
+    "@remotion/gif": "4.0.466",
+    "@remotion/google-fonts": "4.0.466"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "remotion": "^4.0.0"
+  }
+}
