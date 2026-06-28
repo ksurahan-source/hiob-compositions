@@ -1,7 +1,6 @@
 {
   "name": "@hiob/compositions",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
@@ -12,12 +11,15 @@
     "src"
   ],
   "dependencies": {
-    "@hiob/timeline": "git+https://github.com/ksurahan-source/hiob-timeline.git#main",
+    "@hiob/timeline": "^0.1.1",
     "@remotion/gif": "4.0.466",
     "@remotion/google-fonts": "4.0.466"
   },
   "peerDependencies": {
     "react": "^19.0.0",
     "remotion": "^4.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
