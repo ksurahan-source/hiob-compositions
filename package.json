@@ -12,7 +12,7 @@
     "src"
   ],
   "dependencies": {
-    "@hiob/timeline": "github:ksurahan-source/hiob-timeline",
+    "@hiob/timeline": "git+https://github.com/ksurahan-source/hiob-timeline.git#main",
     "@remotion/gif": "4.0.466",
     "@remotion/google-fonts": "4.0.466"
   },
