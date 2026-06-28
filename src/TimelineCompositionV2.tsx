@@ -36,6 +36,7 @@ import { punchInTransform } from './effects/punchIn';
 import { chromaticSplitFilter } from './effects/chromaticSplit';
 import { speedRampStyle } from './effects/speedRamp';
 import { LightSweep } from './effects/lightSweep';
+import { EASING_FN } from './lib/easing';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -516,15 +517,10 @@ function resolveAudioVolume(clip: RenderClip, mix?: RenderProps['mix']): number 
   return 1;
 }
 
-// Standard CSS easing curves mapped to Remotion EasingFunction (t → t).
-const EASING_FN: Record<string, (t: number) => number> = {
-  linear: (t) => t,
-  ease: (t) => 1 - Math.pow(1 - t, 2.2), // CSS ease approx: fast start, gentle finish
-  'ease-in': (t) => t * t,
-  'ease-out': (t) => t * (2 - t),
-  'ease-in-out': (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
-  spring: (t) => Math.sin(-13 * (Math.PI / 2) * (t + 1)) * Math.pow(2, -10 * t) + 1,
-};
+// Easing curves now live in ./lib/easing (shared with the ReelDoc element path)
+// so a keyframe's `easing` name renders identically in preview, Lambda, and the
+// ReelDoc interpreter. The original 6 are kept byte-compatible there; motion
+// templates add back/overshoot/expo/quint/sine for the "손맛" feel.
 
 function applyKf(clip: RenderClip, prop: 'opacity' | 'scale' | 'x' | 'y' | 'rotation', fallback: number, localFrame: number, fps: number): number {
   const kfs = (clip.keyframes ?? []).filter((k) => k.property === prop);

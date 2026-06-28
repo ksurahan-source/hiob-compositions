@@ -6,6 +6,7 @@
  * New presets require zero changes to renderer code — just add an entry here.
  */
 import { interpolate } from 'remotion';
+import { getEasing } from './easing';
 
 export interface AnimationTransform {
   scale?: number;
@@ -15,12 +16,24 @@ export interface AnimationTransform {
   rotation?: number;
 }
 
+export type PresetIntensity = 'subtle' | 'medium' | 'strong';
+
 /** A pure, deterministic preset animation function. frame is relative to animation start. */
 export type PresetAnimationFn = (
   frame: number,
   fps: number,
   durationInFrames: number,
+  intensity?: PresetIntensity,
 ) => AnimationTransform;
+
+const pickI = (i: PresetIntensity | undefined, s: number, m: number, l: number) =>
+  (i === 'subtle' ? s : i === 'strong' ? l : m);
+
+/** Eased ramp from→to over [0,dur] frames; overshoot easings sail past `to` then settle. */
+const ramp = (frame: number, dur: number, from: number, to: number, easing: string) => {
+  const t = Math.max(0, Math.min(1, frame / Math.max(1, dur)));
+  return from + getEasing(easing)(t) * (to - from);
+};
 
 function clipHash(id: string): number {
   let hash = 0;
@@ -124,6 +137,54 @@ const builtinPresets: Record<string, PresetAnimationFn> = {
       ? interpolate(frame, [0, halfDur], [1.0, 1.08], clamp)
       : interpolate(frame, [halfDur, dur], [1.08, 1.0], clamp);
     return { scale };
+  },
+
+  // ── Envato-grade pro presets (scale/rotation/opacity — unit-unambiguous in the
+  //    ReelDoc element transform). ids mirror the live clips[] catalog so a ReelDoc
+  //    and an editor clip can request the SAME motion by name. Translate-heavy camera
+  //    presets are authored on the live keyframe path until the ReelDoc x/y unit is
+  //    finalized; these settle exactly on their target so no end-state drift. ──
+  'snap-zoom-in': (frame, _fps, dur, i) => ({
+    scale: ramp(frame, dur, pickI(i, 0.6, 0.2, 0.0), 1, 'ease-out-back'),
+    opacity: ramp(frame, dur * 0.5, 0, 1, 'ease-out-cubic'),
+  }),
+  'overshoot-pop': (frame, _fps, dur, i) => {
+    const rot = pickI(i, 0, 6, 12);
+    const out: AnimationTransform = {
+      scale: ramp(frame, dur, 0, 1, 'ease-out-back'),
+      opacity: ramp(frame, dur * 0.35, 0, 1, 'ease-out'),
+    };
+    if (rot) out.rotation = ramp(frame, dur, rot, 0, 'ease-out-back');
+    return out;
+  },
+  'pop-scale': (frame, _fps, dur, i) => ({
+    scale: ramp(frame, dur, pickI(i, 0.4, 0.1, 0.0), 1, 'ease-out-back'),
+    opacity: ramp(frame, dur * 0.4, 0, 1, 'ease-out'),
+  }),
+  'dolly-push-in': (frame, _fps, dur, i) => ({
+    scale: ramp(frame, dur, 1, pickI(i, 1.1, 1.25, 1.4), 'ease-out-expo'),
+  }),
+  punch: (frame, _fps, dur, i) => {
+    const peak = pickI(i, 1.06, 1.15, 1.3);
+    const half = dur / 2;
+    const scale = frame <= half
+      ? ramp(frame, half, 1, peak, 'ease-out-back')
+      : ramp(frame - half, half, peak, 1, 'ease-out-cubic');
+    return { scale };
+  },
+  kick: (frame, _fps, dur, i) => {
+    const s = pickI(i, 1.08, 1.2, 1.35);
+    const r = pickI(i, 5, 15, 25);
+    const a = dur * 0.4;
+    const scale = frame <= a ? ramp(frame, a, 1, s, 'ease-out-back') : ramp(frame - a, dur - a, s, 1, 'ease-out-cubic');
+    const rotation = frame <= a ? ramp(frame, a, 0, r, 'ease-out-back') : ramp(frame - a, dur - a, r, 0, 'ease-out-cubic');
+    return { scale, rotation };
+  },
+  'bounce-in': (frame, _fps, dur) => {
+    const t = Math.max(0, Math.min(1, frame / Math.max(1, dur)));
+    // Damped overshoot that settles exactly on 1.0 at t=1 (no end drift).
+    const scale = 1 - Math.cos(t * Math.PI * 2.5) * Math.pow(1 - t, 2);
+    return { scale, opacity: ramp(frame, dur * 0.3, 0, 1, 'ease-out') };
   },
 };
 
