@@ -1125,7 +1125,9 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const sceneLayer = resolveSceneLayer(clip, scene_type);
   const sceneTemplate = SCENE_TEMPLATES[scene_type];
   const globalMs = clip.startMs + (frame / fps) * 1000;
-  const inProofCutaway = isInsideWindow(globalMs, proofCutawayWindows);
+  // 좁쌀 제거(founder 2026-07-01): proof cutaway 비활성 — 사회증거가 나와도 hero를 인셋으로
+  // 축소하거나 narrator를 숨기지 않는다. proof는 Artemis overlay의 몫.
+  const inProofCutaway = false;
   const t = clip.transforms ?? { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
 
   const opacity = applyKf(clip, 'opacity', t.opacity, frame, fps);
@@ -1204,8 +1206,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const subBeatFlash = (hasSubImages && activeSubIdx > 0 && msIntoActiveSub < FLASH_MS)
     ? Math.max(0, msIntoActiveSub / FLASH_MS)
     : 1;
-  const proofFrame = effectByKind(clip, 'proof-frame');
-  const isProofHero = scene_type === 'proof' && sceneLayer === 'hero';
+  // 좁쌀 제거(founder 2026-07-01): proof-frame 인셋 비활성 — 사회증거가 hero 이미지를 작은
+  // 카드로 축소하지 않는다. 사회증거는 Artemis(에디터)가 full-bleed 위에 overlay로 얹는다.
+  const proofFrame = false;
+  const isProofHero = false;
   const isNarratorVisual = sceneLayer === 'narrator' && (isVisualAsset || clip.trackKind === 'video' || clip.trackKind === 'overlay');
   // LOOP_COMPOSE PROOF-CUTAWAY branch: hide the narrator ONLY while a proof HERO
   // asset is actually on-screen (inProofCutaway) — NOT for the whole proof scene.
