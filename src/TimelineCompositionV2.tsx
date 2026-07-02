@@ -1576,7 +1576,9 @@ function captionContainerForScene(scene_type: SceneType, captionPosition?: strin
   // TMPL-6DO: 六道 position override (non-hook beats only).
   // clip.attributes.caption_position 명시 시 Meta 세이프존 클램프 위치 사용.
   // 미지정 → 기존 captionBand (byte-identical).
-  const sixDoPos = captionPosition ? SIX_DO_CAPTION_POSITIONS[captionPosition] : undefined;
+  // SAFEZONE-DEFAULT (founder 2026-07-02): caption_position 미지정 클립이 기존 captionBand
+  // (y1040+h400 → 하단 1440px)로 Meta 하단 세이프존(>1248px)을 침범 → 기본값 mid-bottom 강제.
+  const sixDoPos = SIX_DO_CAPTION_POSITIONS[captionPosition || ''] || SIX_DO_CAPTION_POSITIONS['mid-bottom'];
   if (sixDoPos) {
     const clampedBottom = Math.min(sixDoPos.y + sixDoPos.height, META_SAFEZONE_BOTTOM);
     const clampedHeight = clampedBottom - sixDoPos.y;
