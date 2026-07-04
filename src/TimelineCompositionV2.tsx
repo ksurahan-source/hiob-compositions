@@ -796,7 +796,11 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   const revealStep = Math.max(10, Math.min(18, Math.floor(durationInFrames / Math.max(lines.length + 1, 3))));
   // B-CAPSTYLE: restrained karaoke only for the 'subtle-karaoke' locales (en); ko/zh
   // (phrase-accent) skip every karaoke term below → byte-identical to today's render.
-  const isKaraoke = localeConfig.captionStyle === 'subtle-karaoke';
+  // Per-clip karaoke opt-in (2026-07-05): an EXPLICIT clip.attributes.caption_karaoke === true
+  // forces word-level karaoke regardless of locale, when the clip carries wordTimings. The
+  // attr is absent by default → isKaraoke unchanged → byte-identical to previous renders.
+  const isKaraoke =
+    localeConfig.captionStyle === 'subtle-karaoke' || captionAttrs.caption_karaoke === true;
   const karaokeWordTimings = isKaraoke && Array.isArray(clip.wordTimings) ? clip.wordTimings : [];
   // Global word index per line so karaoke timing spans the whole caption, not each line.
   const lineWordCounts = lines.map((l) => l.split(/\s+/).filter(Boolean).length);
