@@ -1311,7 +1311,12 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   };
   // attributes.fit: 'contain' shows the WHOLE uploaded asset (letterboxed) instead of
   // the default cover-crop. Absent attribute ⇒ cover, byte-identical to before.
-  const mediaStyle = isProofHero ? proofCutawayMedia : proofFrame ? proofMedia : fitAttr === 'contain' ? containMedia : coverMedia;
+  const baseMediaStyle = isProofHero ? proofCutawayMedia : proofFrame ? proofMedia : fitAttr === 'contain' ? containMedia : coverMedia;
+  // Auto-reframe: shift cover-crop focus via objectPosition. Absent/center ⇒ byte-identical.
+  const reframeAnchor = REFRAME_POSITION[String(clipAttributes(clip).reframe ?? '').toLowerCase()];
+  const mediaStyle = reframeAnchor && baseMediaStyle.objectFit === 'cover'
+    ? { ...baseMediaStyle, objectPosition: reframeAnchor }
+    : baseMediaStyle;
 
   if (!clip.url) {
     const spWording = String(clipAttributes(clip).social_proof_wording ?? '').trim();
@@ -1665,6 +1670,18 @@ const coverMedia: React.CSSProperties = {
   width: '100%',
   height: '100%',
   objectFit: 'cover',
+};
+// Auto-reframe anchor (2026-07-05) — objectPosition shifts a cover-crop's focus in the 9:16
+// frame so the subject stays visible instead of the default center crop. clip.attributes.reframe
+// drives it (a CV worker can auto-set it; the editor sets it manually). Absent ⇒ center default.
+const REFRAME_POSITION: Record<string, string> = {
+  center: 'center center',
+  top: 'center top',
+  bottom: 'center bottom',
+  left: 'left center',
+  right: 'right center',
+  'top-left': 'left top',
+  'top-right': 'right top',
 };
 // attributes.fit === 'contain' — whole-asset view for uploaded media whose aspect
 // doesn't match the 9:16 frame (e.g. founder-uploaded dashboard screenshots).
