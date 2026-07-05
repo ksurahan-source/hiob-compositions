@@ -1377,8 +1377,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const baseReframed = reframeAnchor && baseMediaStyle.objectFit === 'cover'
     ? { ...baseMediaStyle, objectPosition: reframeAnchor }
     : baseMediaStyle;
-  // CapCut chroma key — green-screen removal via an SVG filter referenced by url(). Absent ⇒ untouched.
-  const chromaKey = effectByKind(clip, 'chroma-key');
+  // CapCut chroma key — green-screen removal via an SVG filter referenced by url(). Absent (or
+  // disabled via the effect stack toggle) ⇒ untouched.
+  const chromaKeyRaw = effectByKind(clip, 'chroma-key');
+  const chromaKey = chromaKeyRaw && (chromaKeyRaw as { disabled?: boolean }).disabled !== true ? chromaKeyRaw : null;
   const chromaId = chromaKey ? `ck-${String(clip.id).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
   const chromaDefs = chromaKey
     ? <ChromaKeyDefs id={chromaId} similarity={paramNumber(chromaKey.params?.similarity, 0.4)} />
