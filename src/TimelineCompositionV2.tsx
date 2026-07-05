@@ -264,14 +264,58 @@ function lookFilter(preset: string): string {
   }
 }
 
+// CapCut chroma key (green-screen removal) — a real SVG feColorMatrix keyer: it measures
+// "green-ness" (a = -R + G - B), sharpens that into an alpha mask, then composites the source
+// OUT of the mask so green pixels drop to transparent. `similarity` widens what counts as key.
+// Targets the green key (CapCut default); rendered once per keyed clip via an inline <defs>,
+// referenced by `filter: url(#id)`. Absent ⇒ no filter ⇒ byte-identical.
+const ChromaKeyDefs: React.FC<{ id: string; similarity: number }> = ({ id, similarity }) => {
+  const s = Math.max(0, Math.min(1, similarity));
+  const slope = 4 + s * 16;
+  const intercept = -(0.1 + s * 0.4);
+  return (
+    <svg aria-hidden style={{ position: 'absolute', width: 0, height: 0 }}>
+      <defs>
+        <filter id={id} colorInterpolationFilters="sRGB">
+          <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -1 1 -1 0 0" result="green" />
+          <feComponentTransfer in="green" result="mask">
+            <feFuncA type="linear" slope={slope} intercept={intercept} />
+          </feComponentTransfer>
+          <feComposite in="SourceGraphic" in2="mask" operator="out" />
+        </filter>
+      </defs>
+    </svg>
+  );
+};
+
+// CapCut shape mask → CSS clip-path (byte-faithful preview==render). size = % of the frame
+// the shape spans; x/y = shape center in %. Absent 'mask' effect ⇒ no clipPath ⇒ untouched.
+function maskClipPath(shape: string, size: number, x: number, y: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(100, v));
+  const r = clamp(size) / 2;
+  const cx = clamp(x);
+  const cy = clamp(y);
+  switch (shape) {
+    case 'circle': return `circle(${r}% at ${cx}% ${cy}%)`;
+    case 'ellipse': return `ellipse(${(r * 0.72).toFixed(1)}% ${r}% at ${cx}% ${cy}%)`;
+    case 'rect': return `inset(${clamp(cy - r)}% ${clamp(100 - (cx + r))}% ${clamp(100 - (cy + r))}% ${clamp(cx - r)}%)`;
+    case 'rounded': return `inset(${clamp(cy - r)}% ${clamp(100 - (cx + r))}% ${clamp(100 - (cy + r))}% ${clamp(cx - r)}% round 12%)`;
+    default: return '';
+  }
+}
+
 function transformEffects(clip: RenderClip, frame: number, fps: number, durationInFrames: number) {
   let opacity = 1;
   let filter = '';
   let transform = '';
   let clipPath = '';
+  let blendMode = '';
   const tMs = (frame / fps) * 1000;
 
   for (const eff of clip.effects ?? []) {
+    // CapCut effect enable/disable — a disabled effect is skipped entirely (byte-identical
+    // to not having it), so the editor can toggle an effect off without deleting it.
+    if ((eff as { disabled?: boolean }).disabled === true) continue;
     if (eff.kind === 'fade-in') {
       const dMs = paramNumber(eff.params?.durationMs, 300);
       opacity *= dMs > 0 ? Math.min(1, tMs / dMs) : 1;
@@ -362,10 +406,25 @@ function transformEffects(clip: RenderClip, frame: number, fps: number, duration
       });
       transform += ramp.transform;
       if (ramp.filter) filter += `${filter ? ' ' : ''}${ramp.filter}`;
+    } else if (eff.kind === 'opacity') {
+      // CapCut per-clip opacity — multiplies the clip's alpha (1 = opaque, 0 = invisible).
+      // Composes with fades; overlay clips dial this down to blend over the layer beneath.
+      opacity *= Math.max(0, Math.min(1, paramNumber(eff.params?.value, 1)));
+    } else if (eff.kind === 'blend') {
+      // CapCut blend mode — how this clip composites over clips beneath it in z-order.
+      blendMode = paramString(eff.params?.mode, 'normal');
+    } else if (eff.kind === 'mask') {
+      // CapCut shape mask — reveal only a shape of the clip (circle/ellipse/rect/rounded).
+      clipPath = maskClipPath(
+        paramString(eff.params?.shape, 'circle'),
+        paramNumber(eff.params?.size, 70),
+        paramNumber(eff.params?.x, 50),
+        paramNumber(eff.params?.y, 50),
+      ) || clipPath;
     }
   }
 
-  return { opacity, filter, transform, clipPath };
+  return { opacity, filter, transform, clipPath, blendMode };
 }
 
 // Per-clip visual overlays. `frame` is the clip-local frame so animated
@@ -1149,6 +1208,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   transformStyle.transform = `${transformStyle.transform ?? ''}${effects.transform}`;
   if (effects.filter) appendFilter(transformStyle, effects.filter);
   if (effects.clipPath) transformStyle.clipPath = effects.clipPath;
+  // CapCut blend mode — composite this clip over the layer beneath (normal ⇒ untouched).
+  if (effects.blendMode && effects.blendMode !== 'normal') {
+    transformStyle.mixBlendMode = effects.blendMode as React.CSSProperties['mixBlendMode'];
+  }
 
   const isAudioAsset = clip.assetKind === 'audio';
   const isVisualAsset = clip.assetKind === 'image' || clip.assetKind === 'video';
@@ -1311,9 +1374,18 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const baseMediaStyle = isProofHero ? proofCutawayMedia : proofFrame ? proofMedia : fitAttr === 'contain' ? containMedia : coverMedia;
   // Auto-reframe: shift cover-crop focus via objectPosition. Absent/center ⇒ byte-identical.
   const reframeAnchor = REFRAME_POSITION[String(clipAttributes(clip).reframe ?? '').toLowerCase()];
-  const mediaStyle = reframeAnchor && baseMediaStyle.objectFit === 'cover'
+  const baseReframed = reframeAnchor && baseMediaStyle.objectFit === 'cover'
     ? { ...baseMediaStyle, objectPosition: reframeAnchor }
     : baseMediaStyle;
+  // CapCut chroma key — green-screen removal via an SVG filter referenced by url(). Absent ⇒ untouched.
+  const chromaKey = effectByKind(clip, 'chroma-key');
+  const chromaId = chromaKey ? `ck-${String(clip.id).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
+  const chromaDefs = chromaKey
+    ? <ChromaKeyDefs id={chromaId} similarity={paramNumber(chromaKey.params?.similarity, 0.4)} />
+    : null;
+  const mediaStyle = chromaKey
+    ? { ...baseReframed, filter: [(baseReframed as React.CSSProperties).filter, `url(#${chromaId})`].filter(Boolean).join(' ') }
+    : baseReframed;
 
   if (!clip.url) {
     const spWording = String(clipAttributes(clip).social_proof_wording ?? '').trim();
@@ -1372,6 +1444,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
 
   return (
     <AbsoluteFill style={visualStyle}>
+      {chromaDefs}
       {proofFrame ? (
         <AbsoluteFill style={proofFrameShell}>
           {media}
