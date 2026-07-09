@@ -123,16 +123,23 @@ function kenBurnsTransform(frame: number, durationInFrames: number, clipId: stri
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
-  const direction = clipHash(clipId) % 4;
+  const hash = clipHash(clipId);
+  const direction = hash % 4;
   const pan = interpolate(progress, [0, 1], [-1.8, 1.8], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
+  // 2026-07-09 founder "전 컷이 동일하게 뾱 들어간다": 줌이 항상 1.0→1.07 push-in 단일이라
+  // 팬 축만 달라도 리듬이 죽는다. subshotKenBurns처럼 해시로 스타일 교대 —
+  // 0=줌인, 1=줌아웃, 2=홀드(고정 1.04 + 팬 드리프트만). 순수 프레임 수학 ⇒ preview==render.
+  const style = (hash >> 2) % 3;
+  const scale = style === 0
+    ? interpolate(progress, [0, 1], [1.0, 1.06], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+    : style === 1
+      ? interpolate(progress, [0, 1], [1.06, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+      : 1.04;
   return {
-    scale: interpolate(progress, [0, 1], [1.0, 1.07], {
-      extrapolateLeft: 'clamp',
-      extrapolateRight: 'clamp',
-    }),
+    scale,
     x: direction === 0 ? pan : direction === 1 ? -pan : 0,
     y: direction === 2 ? pan : direction === 3 ? -pan : 0,
   };
