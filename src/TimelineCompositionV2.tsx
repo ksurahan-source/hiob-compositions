@@ -1321,7 +1321,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
     ? Math.max(0, frame - activeSubIdx * subDurationInFrames)
     : frame;
 
-  const kb = isVideo || proofFrame || effectByKind(clip, 'ken-burns')
+  // 2026-07-10 founder "비트마다 기계식 줌 1회": 모션 계획(keyframes)이 있으면 블랭킷
+  // 켄번스를 끈다 — keyframes가 모션의 단일 권위, 켄번스는 계획 없는 레거시 클립 폴백으로 강등.
+  const hasMotionKf = (clip.keyframes ?? []).some((k) => k.property === 'scale' || k.property === 'x' || k.property === 'y');
+  const kb = isVideo || proofFrame || hasMotionKf || effectByKind(clip, 'ken-burns')
     ? { scale: 1, x: 0, y: 0 }
     : isSubshot
       ? subshotKenBurns(frame, durationInFrames, `${motionClipId}_ss_${Number(clipAttributes(clip).subshot_index ?? 0)}`)
