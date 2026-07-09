@@ -1356,10 +1356,12 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   // never a "Christmas tree". Both deterministic.
   const motionSeed = narratorBeatIndex >= 0 ? narratorBeatIndex * 7 : Math.round(clip.startMs / 400);
   const isTalkingHead = isNarratorVisual && !pipStyle;
-  const pan = isVisualAsset && !isTalkingHead && !isProofHero
+  const pan = isVisualAsset && !isTalkingHead && !isProofHero && !hasMotionKf
     ? slidePanEntrance(frame, fps, pickDirection(motionSeed), { frames: 8 })
     : null;
-  const punch = isTalkingHead
+  // 2026-07-10 founder "1초 지나고 두근": 발화 컷 무조건 punch-in(0.5s 지점 1.09 팝)이
+  // 모션 계획과 무관하게 얹히던 하드코딩 — keyframes(모션 권위) 있으면 끈다. 입장 팬도 동일.
+  const punch = isTalkingHead && !hasMotionKf
     ? ` ${punchInTransform(frame, fps, durationInFrames, { at: 0.5, zoom: 1.09, settle: 1.04 })}`
     : '';
   const visualStyle: React.CSSProperties = {
