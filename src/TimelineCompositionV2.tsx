@@ -860,6 +860,18 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   // instead of overflowing the width at the new uniform 100px size.
   const lines = captionLineGroups(clip.textContent, 3, localeConfig.charsPerLine, localeConfig.lineBreak);
   const revealStep = Math.max(10, Math.min(18, Math.floor(durationInFrames / Math.max(lines.length + 1, 3))));
+  // REC-0047 개정 (2026-07-10 founder): 카라오케 '제한 해제' — 단 줄(line) 단위만.
+  // 각 줄은 자기 첫 단어의 발화 시점(wordTimings)에 나타난다. 단어 단위 리빌은 계속 금지.
+  // wordTimings 없는 레거시 클립은 기존 고정 간격(revealStep) 그대로 — byte-identical.
+  const _wt = Array.isArray(clip.wordTimings) ? clip.wordTimings : [];
+  const _lineWordCountsPre = lines.map((l) => l.split(/\s+/).filter(Boolean).length);
+  const lineStartFrames = lines.map((_, li) => {
+    const off = _lineWordCountsPre.slice(0, li).reduce((sum, n) => sum + n, 0);
+    const w = _wt[off] as { startMs?: number } | undefined;
+    return w && Number.isFinite(w.startMs)
+      ? Math.max(0, Math.round(((w.startMs as number) / 1000) * fps))
+      : li * revealStep;
+  });
   // REC-0047 (founder 2026-06-18 "실패, 이상함"): per-word karaoke = 절대 구현금지. Both the
   // en 'subtle-karaoke' option and the per-clip caption_karaoke opt-in are DROPPED. Only the
   // ko phrase-level keyword emphasis (Market-grade caption emphasis above) survives. Hard off.
@@ -913,7 +925,7 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
         ) : null}
         {lines.map((line, i) => {
           const isLast = i === lines.length - 1;
-          const lineStart = i * revealStep;
+          const lineStart = lineStartFrames[i]; // 발화 동기 (레거시=고정 간격 폴백)
           const t = captionFrame - lineStart; // EDIT-2.3: use captionFrame so reveal starts after lag
           const lineOpacity = interpolate(t, [0, 5], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
           // snappy punch-in with overshoot (deliberate 2026 pacing, not a soft fade)
