@@ -766,10 +766,194 @@ function applyTypeEntranceAnimation(
         : interpolate(p, [0.6, 1],  [1.12, 1],  { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
       return { opacity: Math.min(1, p * 4), transform: `scale(${scale.toFixed(4)})` };
     }
+    case 'rise': {
+      const ty = interpolate(p, [0, 1], [26, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+      return { opacity: Math.min(1, p * 2.5), transform: `translateY(${ty.toFixed(2)}px)` };
+    }
     case 'fade-in':
     default:
       return { opacity: p, transform: '' };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CAPTION TEMPLATE SYSTEM — 자막 플레이 팔레트 (founder 2026-07-12 "전부 구현 + 시의적절 템플릿화")
+// 자막 = {진입모션 + 감정데코 + 시맨틱팔레트 + 키워드모션}의 이름있는 조합(템플릿).
+// 씬 감정에 맞춰 자동 선택되고(autoCaptionTemplate), clip.attributes.caption_template 로
+// 명시 지정 시 그게 우선. 전부 frame-driven(useCurrentFrame) → preview==render, Modal-0.
+// REC-0047 준수: 본문은 줄단위 리빌 유지(단어단위 카라오케 절대 금지). 다양성은 데코+키워드모션+
+// 진입+색으로만 준다 — 본문 가독성은 불변. 주황 blanket 강조는 계속 오프; 색은 이제 씬 감정에
+// 맞춘 '시맨틱'으로만(plain=흰색). founder "너무 그런것 같아"(전부 컬러) 해소.
+// ═══════════════════════════════════════════════════════════════════════════════
+type CaptionDeco = 'none' | 'flame' | 'spark' | 'impact' | 'drops' | 'doubt' | 'beat';
+type CaptionKwMotion = 'none' | 'glitch' | 'spin' | 'count' | 'wave' | 'pulse';
+type CaptionPalette = 'default' | 'trust' | 'urgent' | 'calm' | 'hype' | 'metric';
+interface CaptionTemplate {
+  entrance: string;          // 컨테이너 진입 (pop/bounce/slide-in/fade-in/rise) — 명시 caption_type 있을 때만 발화
+  kwMotion: CaptionKwMotion; // 키워드 액센트 모션 (본문 가독성 불변)
+  deco: CaptionDeco;         // 감정 데코 (글자 주변 불꽃·반짝·물방울 등 — founder 콕집)
+  palette: CaptionPalette;   // 키워드 색 계열 (시맨틱; default=흰색)
+}
+const CAPTION_PALETTE_HEX: Record<CaptionPalette, string | undefined> = {
+  default: undefined, // 흰색 (컬러 강조 없음 — 대다수 자막이 여기)
+  trust: '#4db6ff',   // 인증/안전/증거
+  urgent: '#ff5a52',  // CTA/마감/한정
+  calm: '#5fe0a8',    // 안심/자연/개운
+  hype: '#ffcf3f',    // 열정/충격/강조
+  metric: '#2fcf6b',  // 숫자/수치 (초록 — 기존 규칙 유지)
+};
+// 이름있는 템플릿 (시의 적절하게 골라 쓰거나 자동 매핑). deco가 감정의 얼굴.
+const CAPTION_TEMPLATES: Record<string, CaptionTemplate> = {
+  plain:    { entrance: 'pop',      kwMotion: 'none',   deco: 'none',   palette: 'default' },
+  question: { entrance: 'rise',     kwMotion: 'none',   deco: 'doubt',  palette: 'default' }, // 문제제기/의문
+  shock:    { entrance: 'bounce',   kwMotion: 'glitch', deco: 'impact', palette: 'hype' },    // 충격/반전
+  hype:     { entrance: 'pop',      kwMotion: 'pulse',  deco: 'flame',  palette: 'hype' },     // 열정/강조
+  fresh:    { entrance: 'pop',      kwMotion: 'wave',   deco: 'spark',  palette: 'calm' },     // 개운/선명/맑음
+  product:  { entrance: 'pop',      kwMotion: 'none',   deco: 'drops',  palette: 'default' },  // 제품 결(물/세척)
+  proof:    { entrance: 'pop',      kwMotion: 'none',   deco: 'spark',  palette: 'trust' },    // 인증/후기/증거
+  metric:   { entrance: 'pop',      kwMotion: 'count',  deco: 'none',   palette: 'metric' },   // 숫자/수치
+  cta:      { entrance: 'bounce',   kwMotion: 'pulse',  deco: 'none',   palette: 'urgent' },   // 행동유도
+  reveal:   { entrance: 'slide-in', kwMotion: 'spin',   deco: 'spark',  palette: 'hype' },     // 변신/공개
+};
+// 감정 자동 매핑 어휘 (deterministic). 텍스트 우선 → 없으면 sceneType.
+const CAPTION_EMO_RE = {
+  metric: /[0-9]\s*%|[0-9]\s*배|[0-9][0-9,]*\s*원|[0-9]+\s*(시간|분|초|회|일|주|개월|년)/,
+  shock: /충격|대박|미쳐|미친|폭발|레전드|실화|소름|역대급|헐|경악|말도\s*안/,
+  cta: /지금|딱|오늘|마감|한정|바로|서둘|놓치|클릭|링크|구매|주문|신청|담기/,
+  proof: /인증|테스트|통과|안전|무자극|공인|규격|후기|리뷰|검증|OECD|특허|성분|임상/i,
+  water: /물|수영|헹|세척|린스|김서림|안개|포그|서리|습기/,
+  fresh: /선명|깨끗|맑|개운|산뜻|뽀송|투명|시원|촉촉|깔끔|또렷/,
+  hype: /진짜|최고|강력|완전|찐|인생|필수|제대로|끝판|미쳤|확실/,
+  question: /[?？]/,
+};
+function autoCaptionTemplate(sceneType: SceneType, text: string): string {
+  const t = text || '';
+  if (CAPTION_EMO_RE.metric.test(t)) return 'metric';
+  if (CAPTION_EMO_RE.shock.test(t)) return 'shock';
+  if (CAPTION_EMO_RE.cta.test(t) || sceneType === 'cta') return 'cta';
+  if (CAPTION_EMO_RE.proof.test(t) || sceneType === 'proof') return 'proof';
+  if (CAPTION_EMO_RE.water.test(t) || CAPTION_EMO_RE.fresh.test(t)) return 'fresh';
+  if (CAPTION_EMO_RE.hype.test(t)) return 'hype';
+  if (CAPTION_EMO_RE.question.test(t)) return 'question';
+  if (sceneType === 'product') return 'product';
+  if (sceneType === 'hook') return 'question'; // 훅은 대개 문제제기 톤
+  return 'plain';
+}
+function resolveCaptionTemplate(clip: RenderClip, sceneType: SceneType, text: string): CaptionTemplate {
+  const attrs = (clip.attributes ?? {}) as Record<string, unknown>;
+  const explicit = typeof attrs.caption_template === 'string' ? attrs.caption_template.trim() : '';
+  const name = CAPTION_TEMPLATES[explicit] ? explicit : autoCaptionTemplate(sceneType, text);
+  return CAPTION_TEMPLATES[name] ?? CAPTION_TEMPLATES.plain;
+}
+// 키워드 액센트 모션 — 기존 키워드 transform 뒤에 append (본문 리빌 불변).
+function kwMotionTransform(motion: CaptionKwMotion, frame: number, lineStart: number): string {
+  const f = frame - lineStart;
+  switch (motion) {
+    case 'spin': // 진입 시 3D 플립 (10프레임)
+      return `rotateY(${interpolate(f, [0, 10], [72, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }).toFixed(1)}deg)`;
+    case 'count': // 숫자가 작게서 팡 (착지 오버슈트)
+      return `scale(${interpolate(f, [0, 4, 9], [0.5, 1.25, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }).toFixed(3)})`;
+    case 'wave': // 잔잔한 상하 물결 (지속)
+      return `translateY(${(Math.sin(frame * 0.18) * 4).toFixed(2)}px)`;
+    case 'pulse': // 심장박동 스케일 (지속, 양의 파형만)
+      return `scale(${(1 + 0.07 * Math.max(0, Math.sin(frame * 0.5))).toFixed(3)})`;
+    case 'glitch': { // ~1초마다 짧은 지직 (3프레임)
+      const inBurst = frame % 30 < 3;
+      return inBurst ? `translate(${(Math.sin(frame * 3.1) * 2.4).toFixed(1)}px, ${(Math.cos(frame * 2.7) * 1.4).toFixed(1)}px)` : '';
+    }
+    default:
+      return '';
+  }
+}
+// 감정 데코 레이어 — 자막 텍스트 블록 뒤/주변에 프레임 구동 장식. caption div(position:relative)
+// 안에 zIndex:-1로 얹혀 텍스트를 따라다닌다. 전부 useCurrentFrame 결정론 → preview==render.
+function CaptionDecoLayer({ deco, color }: { deco: CaptionDeco; color: string }) {
+  const frame = useCurrentFrame();
+  if (deco === 'none') return null;
+  const wrap: React.CSSProperties = { position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none', overflow: 'visible' };
+  if (deco === 'flame') {
+    // 글자 아래 불길이 넘실 (열정/강조). 이중 겹불 flicker.
+    const lick = (ph: number, amp: number) => 1 + amp * Math.sin((frame + ph) * 0.9);
+    return (
+      <span style={wrap}>
+        <span style={{ position: 'absolute', left: '50%', bottom: -8, width: '58%', height: 74, transformOrigin: 'center bottom',
+          transform: `translateX(-50%) scaleY(${lick(0, 0.2).toFixed(3)})`, borderRadius: '50% 50% 46% 46%', filter: 'blur(7px)', opacity: 0.8,
+          background: 'radial-gradient(60% 100% at 50% 100%, #ffe24a 0%, #ff8a1e 44%, #ff2d1e 76%, transparent 90%)' }} />
+        <span style={{ position: 'absolute', left: '50%', bottom: -4, width: '40%', height: 92, transformOrigin: 'center bottom',
+          transform: `translateX(-52%) scaleY(${lick(11, 0.28).toFixed(3)})`, borderRadius: '50% 50% 44% 44%', filter: 'blur(5px)', opacity: 0.55,
+          background: 'radial-gradient(55% 100% at 50% 100%, #fff2a8 0%, #ffb01e 40%, #ff5a1e 78%, transparent 92%)' }} />
+      </span>
+    );
+  }
+  if (deco === 'spark') {
+    // 별빛이 톡톡 (기쁨/개운/증거). 고정 6점, 위상 stagger 삼각파.
+    const pts = [[8, -14], [92, -6], [40, 108], [-4, 40], [102, 66], [64, -18]];
+    return (
+      <span style={wrap}>
+        {pts.map(([x, y], i) => {
+          const cyc = ((frame + i * 9) % 42) / 42; // 0..1
+          const s = cyc < 0.4 ? interpolate(cyc, [0, 0.4], [0, 1.3]) : interpolate(cyc, [0.4, 0.7], [1.3, 0], { extrapolateRight: 'clamp' });
+          return <span key={i} style={{ position: 'absolute', left: `${x}%`, top: `${y}%`, width: 8, height: 8, marginLeft: -4, marginTop: -4,
+            borderRadius: '50%', transform: `scale(${Math.max(0, s).toFixed(3)})`, opacity: Math.max(0, Math.min(1, s)),
+            background: `radial-gradient(#fff 0%, ${color} 65%, transparent 100%)`, boxShadow: `0 0 8px ${color}` }} />;
+        })}
+      </span>
+    );
+  }
+  if (deco === 'impact') {
+    // 방사선 임팩트 (충격/반전). 첫 14프레임 버스트 + 느린 잔상 회전.
+    const burst = interpolate(frame, [0, 6, 16], [0.4, 1.05, 1.35], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+    const burstOp = interpolate(frame, [0, 5, 16], [0, 0.7, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+    return (
+      <span style={wrap}>
+        <span style={{ position: 'absolute', inset: '-42% -28%', transform: `scale(${burst.toFixed(3)}) rotate(${(frame * 1.4).toFixed(1)}deg)`,
+          opacity: burstOp, borderRadius: '50%',
+          background: `repeating-conic-gradient(from 0deg, ${color}cc 0deg 7deg, transparent 7deg 22deg)` }} />
+      </span>
+    );
+  }
+  if (deco === 'drops') {
+    // 물방울이 떨어진다 (제품 결: 물/세척). 4방울 loop.
+    const drops = [[24, 0], [54, 14], [76, 26], [40, 38]];
+    return (
+      <span style={wrap}>
+        {drops.map(([x, ph], i) => {
+          const top = (((frame * 2.4 + ph * 3) % 130) - 15); // -15..115 %
+          return <span key={i} style={{ position: 'absolute', left: `${x}%`, top: `${top.toFixed(1)}%`, width: 6, height: 9, marginLeft: -3,
+            borderRadius: '0 60% 60% 60%', transform: 'rotate(45deg)', opacity: 0.8,
+            background: 'linear-gradient(#cdeeff, #6fc7ff)', boxShadow: `0 0 5px ${color}88` }} />;
+        })}
+      </span>
+    );
+  }
+  if (deco === 'doubt') {
+    // 물음표가 떠오른다 (불안/의문). 3개 stagger 상승·페이드.
+    const qs = [[6, '?'], [88, '?'], [70, '?']];
+    return (
+      <span style={wrap}>
+        {qs.map(([x], i) => {
+          const cyc = ((frame + i * 16) % 54) / 54;
+          const op = cyc < 0.2 ? interpolate(cyc, [0, 0.2], [0, 1]) : interpolate(cyc, [0.6, 1], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          const y = interpolate(cyc, [0, 1], [10, -28]);
+          const rot = Math.sin((frame + i * 20) * 0.2) * 8;
+          return <span key={i} style={{ position: 'absolute', left: `${x}%`, top: -12, transform: `translateY(${y.toFixed(1)}px) rotate(${rot.toFixed(1)}deg)`,
+            opacity: Math.max(0, op), fontSize: 44, fontWeight: 900, color: '#ffd23f', WebkitTextStroke: '3px #08070a',
+            paintOrder: 'stroke fill' as React.CSSProperties['paintOrder'] }}>?</span>;
+        })}
+      </span>
+    );
+  }
+  if (deco === 'beat') {
+    // 두근두근 (설렘/기대). 텍스트 뒤 부드러운 맥동 글로우.
+    const b = 1 + 0.12 * Math.max(0, Math.sin(frame * 0.55));
+    return (
+      <span style={wrap}>
+        <span style={{ position: 'absolute', inset: '-18% -12%', transform: `scale(${b.toFixed(3)})`, borderRadius: '50%',
+          background: `radial-gradient(60% 60% at 50% 50%, ${color}44 0%, transparent 72%)`, opacity: 0.9 }} />
+      </span>
+    );
+  }
+  return null;
 }
 
 function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip; transformStyle: React.CSSProperties; sceneType: SceneType }) {
@@ -777,12 +961,9 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   const frame = useCurrentFrame();
   const localeConfig = useContext(LocaleConfigContext);
   const durationInFrames = msToDurationFrames(clip.durationMs, fps);
-  // Per-brand point color (archiveknock): falls back to the HIOB default accent.
-  // Validate as a 6-digit hex before it reaches CSS so an untrusted attribute can't
-  // inject arbitrary style (harden #8); the `${accent}73` shadow also needs 6-digit.
   const captionAttrs = (clip.attributes ?? {}) as Record<string, unknown>;
-  const rawAccent = typeof captionAttrs.brand_point_color === 'string' ? captionAttrs.brand_point_color.trim() : '';
-  const accent = /^#[0-9a-fA-F]{6}$/.test(rawAccent) ? rawAccent : CAPTION_ACCENT;
+  // 키워드 색은 이제 자막 템플릿 팔레트(시맨틱)가 결정 — 구 brand_point_color/accent 경로는 은퇴
+  // (founder 2026-07-12 blanket 주황 오프). 브랜드 포인트색은 TestimonialCard 등에서만 CAPTION_ACCENT 사용.
   // CTA scene = sharp everywhere; every other scene softens its 부수(non-keyword) words.
   const secondaryBlurPx = sceneType === 'cta' ? 0 : SECONDARY_CAPTION_BLUR_PX;
   // Caption strategy (founder 2026-06-15): the power-word is a COLORED word over the thick
@@ -790,6 +971,14 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   const captionTextRaw = typeof clip.textContent === 'string' ? clip.textContent : '';
   const isEmotional = /[!?！？]|충격|대박|미쳐|미친|폭발|진짜|레전드|실화|소름|역대급|망했|실패/.test(captionTextRaw);
   const baseTextStyle = sceneType === 'hook' ? hookCaptionText : sceneType === 'proof' ? proofCaptionText : captionText;
+  // CAPTION TEMPLATE (founder 2026-07-12 "전부 구현 + 시의적절 템플릿화"): 씬 감정 → 자막
+  // 템플릿(데코·색·키워드모션·진입)을 자동 선택. clip.attributes.caption_template 명시 시 우선.
+  const captionTemplate = resolveCaptionTemplate(clip, sceneType, captionTextRaw);
+  const kwPaletteHex = CAPTION_PALETTE_HEX[captionTemplate.palette];
+  const decoColor = ({
+    none: 'transparent', flame: '#ff8a1e', drops: '#6fc7ff', doubt: '#ffd23f',
+    beat: '#ff6b8a', spark: kwPaletteHex ?? '#ffe98a', impact: kwPaletteHex ?? '#ffffff',
+  } as Record<CaptionDeco, string>)[captionTemplate.deco];
   const captionStyleEffect = effectByKind(clip, 'caption-style');
   const stickerEffect = effectByKinds(clip, ['caption-border-sticker', 'caption-flame', 'sticker']);
   const glowEffect = effectByKinds(clip, ['glow', 'caption-glow']);
@@ -816,7 +1005,9 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   const hasCaptionType = typeof captionAttrs.caption_type === 'string';
   const captionType = hasCaptionType ? (captionAttrs.caption_type as CaptionType) : 'speaker-dialogue';
   const typeConfig = CAPTION_DEFAULTS[captionType] ?? CAPTION_DEFAULTS['speaker-dialogue'];
-  const entranceEffect = (captionAttrs.caption_entrance_effect as string | undefined) ?? typeConfig.entranceEffect;
+  // 진입 우선순위: 명시 attr → 자막 템플릿 → caption_type 기본. (진입은 caption_type 있을 때만 발화 —
+  // 레거시 클립은 entranceDurationFrames=0 이라 byte-identical.)
+  const entranceEffect = (captionAttrs.caption_entrance_effect as string | undefined) ?? captionTemplate.entrance ?? typeConfig.entranceEffect;
   const entranceDurationMs = typeConfig.entranceDurationMs;
   // EDIT-2.3: lag — caption appears lagMs after clip startMs.
   const lagMs = hasCaptionType
@@ -924,6 +1115,8 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
             }}
           />
         ) : null}
+        {/* 감정 데코 (불꽃·반짝·임팩트·물방울·의심·두근) — 텍스트 뒤에서 frame 구동 */}
+        {captionTemplate.deco !== 'none' ? <CaptionDecoLayer deco={captionTemplate.deco} color={decoColor} /> : null}
         {lines.map((line, i) => {
           const isLast = i === lines.length - 1;
           const lineStart = lineStartFrames[i]; // 발화 동기 (레거시=고정 간격 폴백)
@@ -955,12 +1148,15 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
                 // (#2fcf6b), everything else → the brand point color. It pops to 1.08 as it
                 // lands; emotional captions add a 2-3px micro-shake (kinetic, speech-synced feel).
                 const kwIsMetric = isKey && /[0-9%]|원|만|천|억|배|위|등/.test(word);
-                // 주황/컬러 강조 오프(founder 2026-07-12): kwColor=undefined → 강조어도 일반 흰색.
-                const kwColor = !CAPTION_ACCENT_ENABLED ? undefined : (kwIsMetric ? '#2fcf6b' : accent);
+                // 키워드 색 = 자막 템플릿 팔레트(시맨틱). metric 숫자는 항상 초록. plain 템플릿=undefined
+                // (흰색). blanket 주황 강조는 계속 오프(founder "너무 그런것 같아") — 색은 감정별로만.
+                const kwColor = isKey ? (kwIsMetric ? CAPTION_PALETTE_HEX.metric : kwPaletteHex) : undefined;
                 const kwScale = isKey
                   ? interpolate(markerGrow, [0, 1], [1, 1.08], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
                   : 1;
                 const shakeX = isKey && isEmotional ? Math.sin((frame - lineStart) * 1.7) * 2.4 : 0;
+                // 키워드 액센트 모션 (glitch/spin/count/wave/pulse) — 기존 transform 뒤에 append.
+                const kwMx = isKey ? kwMotionTransform(captionTemplate.kwMotion, frame, lineStart) : '';
                 // B-CAPSTYLE karaoke (en only): null for ko/zh → every term below collapses
                 // to the legacy value, so the phrase-accent render stays byte-identical.
                 const globalWi = lineWordOffset + wi;
@@ -983,7 +1179,7 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
                         // ko keeps the exact same string); non-key words pick up the karaoke
                         // micro-bump only when karaoke is active, else stay transform-less.
                         transform: isKey
-                          ? `translateX(${shakeX}px) scale(${kwScale * (karaoke ? karaoke.scale : 1)})`
+                          ? `translateX(${shakeX}px) scale(${kwScale * (karaoke ? karaoke.scale : 1)}) ${kwMx}`.trim()
                           : karaoke
                             ? `scale(${karaoke.scale})`
                             : undefined,
