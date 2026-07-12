@@ -1555,8 +1555,18 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   // frame rendered ~70% FALLBACK_BG black with a small product card floating in it. Render
   // the proof visual full-frame instead of a pip. Scoped to social_proof/proof visuals only
   // — every other product beat keeps its narrator pip, so non-proof reels stay byte-stable.
+  // 2026-07-12 (founder "통째로 회귀·배선 잘못됐다"): scene-grammar-v2 의 인물 없는 제품/장면
+  // 비주얼(product_solo·hands_demo·before_after·scene_no_person·situation_pov)은 그 비트의
+  // HERO다 — 제품이 화면의 주인공이어야 한다. 이것들도 scene_layer='narrator'로 태그되므로
+  // SCENE_TEMPLATES['product'].narrator='pip-right' 규칙에 걸려 tiny 우하단 카드로 축소됐다
+  // (실사고: viewok 제품 컷이 검은 프레임에 좁쌀만한 제품). proof 비주얼과 동일하게 pip을
+  // 우회해 풀블리드로 렌더한다. 발화 인물(persona/kol_narrator)만 narrator pip을 유지.
+  const _clipRenderMode = String(clipAttributes(clip).render_mode ?? '').toLowerCase();
+  const isFullBleedSceneVisual = [
+    'social_proof', 'product_solo', 'hands_demo', 'before_after', 'scene_no_person', 'situation_pov',
+  ].includes(_clipRenderMode);
   const isProofVisual =
-    String(clipAttributes(clip).render_mode ?? '').toLowerCase() === 'social_proof' ||
+    isFullBleedSceneVisual ||
     String(clipAttributes(clip).scene_type ?? '').toLowerCase() === 'proof';
   const pipStyle = isProofVisual || hasManualFraming
     ? null
