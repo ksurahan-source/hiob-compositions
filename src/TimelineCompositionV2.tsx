@@ -1568,13 +1568,12 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const isProofVisual =
     isFullBleedSceneVisual ||
     String(clipAttributes(clip).scene_type ?? '').toLowerCase() === 'proof';
-  const pipStyle = isProofVisual || hasManualFraming
-    ? null
-    : sceneTemplate.narrator === 'pip-left'
-      ? pipBottomLeft
-      : sceneTemplate.narrator === 'pip-right'
-        ? pipBottomRight
-        : null;
+  // Rule 3·4 (founder 2026-07-12 "좁쌀 프레임은 짜쳐·절대 사용 안 한다"): SCENE_TEMPLATES의
+  // 자동 narrator pip(250×360 검은 프레임 좁쌀)을 **전면 금지**. 모든 비주얼은 풀블리드로 렌더한다
+  // — 자산이 화면 한 구석에 좁쌀만하게 뜨는 컷은 원천 차단(제품 회귀 재발 방지). isProofVisual/
+  // pipBottom*는 하위호환 참조용으로 남기되 pip은 더 이상 만들지 않는다.
+  void isProofVisual; void pipBottomLeft; void pipBottomRight;
+  const pipStyle: React.CSSProperties | null = null;
   // Cinematic motion (founder 2026-06-15, Rule-of-One): B-roll visuals SLIDE in
   // (directional, motion-blurred entrance), full talking-head shots get a subtle PUNCH-IN
   // emphasis. Either is layered over the ambient ken-burns drift — one entrance + one drift,
