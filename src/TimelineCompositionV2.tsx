@@ -673,12 +673,13 @@ function captionLineGroups(
 // Default = HIOB logo orange; per-brand override rides in via clip.attributes.brand_point_color
 // (Modal stamps it from the brand theme), so each brand gets its own consistent accent.
 const CAPTION_ACCENT = '#df5a2d';
-// VERIFY-C3 "흐릿한 글자 = 블러": focus-pull hierarchy layered on the color emphasis.
-// Non-keyword ("부수") words recede with a subtle gaussian blur while the single power-word
-// stays razor-sharp — and the CTA scene blurs NOTHING (the conversion line must read 100%
-// crisp). Kept small so the heavy outlined ~100px glyphs still pass the muted-readability
-// law (VISUAL_STRATEGY §1: "음소거로도 읽히는 자막").
-const SECONDARY_CAPTION_BLUR_PX = 2.2;
+// 주황 강조 비활성 (founder 2026-07-12 "강조 단어 주황색 너무 그런것 같아·일단 빼줘"):
+// false면 강조어도 주황/컬러 없이 일반 흰색 — 키워드는 미세 스케일 팝만 남긴다(컬러 아님).
+// 나중 되살리려면 true. (metric green도 함께 꺼진다 — 컬러 강조 전면 오프.)
+const CAPTION_ACCENT_ENABLED = false;
+// 자막 블러 제거 (founder 2026-07-12 "강조 빼고 전부 30% 블러 같은데 블러는 풀어줘"):
+// 비강조어를 흐리게 하던 focus-pull(VERIFY-C3)을 끈다 — 모든 글자가 또렷하게. 0=전면 오프.
+const SECONDARY_CAPTION_BLUR_PX = 0;
 const CAPTION_KEYWORD_RE = /[0-9%]|히옵|매출|손님|단골|문의|예약|장부|조회수|폭발|대박|무료|공짜|지금|줄|끊|망|됐|늘|채워|살리|답|릴스|광고|전환|성공|후기|첫|딱/;
 function captionKeywordIndex(words: string[], isLastLine: boolean): number {
   for (let i = 0; i < words.length; i += 1) {
@@ -954,7 +955,8 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
                 // (#2fcf6b), everything else → the brand point color. It pops to 1.08 as it
                 // lands; emotional captions add a 2-3px micro-shake (kinetic, speech-synced feel).
                 const kwIsMetric = isKey && /[0-9%]|원|만|천|억|배|위|등/.test(word);
-                const kwColor = kwIsMetric ? '#2fcf6b' : accent;
+                // 주황/컬러 강조 오프(founder 2026-07-12): kwColor=undefined → 강조어도 일반 흰색.
+                const kwColor = !CAPTION_ACCENT_ENABLED ? undefined : (kwIsMetric ? '#2fcf6b' : accent);
                 const kwScale = isKey
                   ? interpolate(markerGrow, [0, 1], [1, 1.08], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
                   : 1;
@@ -988,7 +990,7 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
                         transformOrigin: 'center bottom',
                         // Karaoke fill: dim upcoming words, hold spoken/current at full.
                         opacity: karaoke ? karaoke.opacity : undefined,
-                        textShadow: isKey
+                        textShadow: isKey && kwColor
                           ? `0 0 14px ${kwColor}55, ${String(baseTextStyle.textShadow ?? '')}`
                           : undefined,
                         // 흐릿한 글자=블러: 부수(non-key) words recede; key word stays sharp.
