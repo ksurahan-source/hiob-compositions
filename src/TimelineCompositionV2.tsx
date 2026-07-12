@@ -814,6 +814,7 @@ const CAPTION_TEMPLATES: Record<string, CaptionTemplate> = {
   metric:   { entrance: 'pop',      kwMotion: 'count',  deco: 'none',   palette: 'metric' },   // 숫자/수치
   cta:      { entrance: 'bounce',   kwMotion: 'pulse',  deco: 'none',   palette: 'urgent' },   // 행동유도
   reveal:   { entrance: 'slide-in', kwMotion: 'spin',   deco: 'spark',  palette: 'hype' },     // 변신/공개
+  heartbeat:{ entrance: 'pop',      kwMotion: 'pulse',  deco: 'beat',   palette: 'hype' },     // 설렘/기대
 };
 // 감정 자동 매핑 어휘 (deterministic). 텍스트 우선 → 없으면 sceneType.
 const CAPTION_EMO_RE = {
@@ -824,17 +825,21 @@ const CAPTION_EMO_RE = {
   water: /물|수영|헹|세척|린스|김서림|안개|포그|서리|습기/,
   fresh: /선명|깨끗|맑|개운|산뜻|뽀송|투명|시원|촉촉|깔끔|또렷/,
   hype: /진짜|최고|강력|완전|찐|인생|필수|제대로|끝판|미쳤|확실/,
+  heartbeat: /설렘|두근|기대|떨려|처음|첫\s|반했|사랑/,
   question: /[?？]/,
 };
 function autoCaptionTemplate(sceneType: SceneType, text: string): string {
   const t = text || '';
-  if (CAPTION_EMO_RE.metric.test(t)) return 'metric';
+  // 우선순위: 의도(충격→행동유도→증거) > 수치 > 질문 > 결(물/개운) > 톤(열정/설렘).
+  // CTA·proof는 숫자를 품어도 의도가 지배 → metric보다 먼저. 질문(?)은 결(fresh)보다 먼저(문제 훅 보호).
   if (CAPTION_EMO_RE.shock.test(t)) return 'shock';
   if (CAPTION_EMO_RE.cta.test(t) || sceneType === 'cta') return 'cta';
   if (CAPTION_EMO_RE.proof.test(t) || sceneType === 'proof') return 'proof';
+  if (CAPTION_EMO_RE.metric.test(t)) return 'metric';
+  if (CAPTION_EMO_RE.question.test(t)) return 'question';
   if (CAPTION_EMO_RE.water.test(t) || CAPTION_EMO_RE.fresh.test(t)) return 'fresh';
   if (CAPTION_EMO_RE.hype.test(t)) return 'hype';
-  if (CAPTION_EMO_RE.question.test(t)) return 'question';
+  if (CAPTION_EMO_RE.heartbeat.test(t)) return 'heartbeat';
   if (sceneType === 'product') return 'product';
   if (sceneType === 'hook') return 'question'; // 훅은 대개 문제제기 톤
   return 'plain';
