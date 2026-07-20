@@ -1609,12 +1609,13 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
       || isSeedreamStill
       || explicitSubjectZoom >= 1.2
       || clip.trackKind === 'video');
-  // 2.2 was too weak for extreme postage stamps (~10% subject). 4.5 fills 9:16.
-  const NARROWSSAL_MIN_SCALE = 4.5;
+  // EyeSafe stills park product in ~15% of the canvas. 4.5 was still small on some
+  // Seedream frames — 6.5 fills 9:16. Override via attributes.subject_zoom.
+  const NARROWSSAL_MIN_SCALE = 6.5;
   let effectiveScale = scale;
   if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban
-  // subjectZoom is applied on the <Img> (mediaCropScale), not the outer AbsoluteFill,
-  // so CSS overflow:hidden on AbsoluteFill actually crops. Outer keeps user/ken scale.
+  // Crop is applied by bloating media box (width/height %) + center translate — NOT
+  // CSS scale() on a 100% box (Remotion <Img> can ignore/clip transforms).
   let mediaCropScale = 1;
   if (isPostageRisk) {
     const target = explicitSubjectZoom >= 1.2 ? explicitSubjectZoom : NARROWSSAL_MIN_SCALE;
@@ -1669,9 +1670,22 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const chromaDefs = chromaKey
     ? <ChromaKeyDefs id={chromaId} similarity={paramNumber(chromaKey.params?.similarity, 0.4)} />
     : null;
-  // Crop-zoom on the media element (transform-origin center) so AbsoluteFill overflow clips.
+  // Bulletproof crop-zoom: oversized media box centered in AbsoluteFill (overflow:hidden).
+  // Do NOT rely on transform:scale alone — Remotion Img defaults can fight it.
+  const pct = (mediaCropScale * 100).toFixed(2);
   const mediaCrop: React.CSSProperties = mediaCropScale > 1.01
-    ? { transform: `scale(${mediaCropScale.toFixed(3)})`, transformOrigin: 'center center' }
+    ? {
+        position: 'absolute',
+        width: `${pct}%`,
+        height: `${pct}%`,
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        maxWidth: 'none',
+        maxHeight: 'none',
+        objectFit: 'cover',
+        objectPosition: reframeAnchor || 'center center',
+      }
     : {};
   const mediaStyle = chromaKey
     ? { ...baseReframed, ...mediaCrop, filter: [(baseReframed as React.CSSProperties).filter, `url(#${chromaId})`].filter(Boolean).join(' ') }
@@ -1733,10 +1747,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   }
 
   return (
-    <AbsoluteFill style={visualStyle}>
+    <AbsoluteFill style={{ ...visualStyle, overflow: 'hidden' }}>
       {chromaDefs}
       {proofFrame ? (
-        <AbsoluteFill style={proofFrameShell}>
+        <AbsoluteFill style={{ ...proofFrameShell, overflow: 'hidden' }}>
           {media}
           <ProofStars />
         </AbsoluteFill>
