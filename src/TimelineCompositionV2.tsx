@@ -1598,20 +1598,18 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const isSeedreamStill =
     isStillVisual &&
     (_clipProvider.includes('seedream') || _clipProvider.includes('seedream-') || _clipProvider.includes('piapi'));
-  // Default: ANY still on the video track that isn't a talking-head is postage-risk.
-  // EyeSafe reels had render_mode on the artifact only — now merged; still fail-safe
-  // by treating plain video-track stills as risk unless opted out.
+  // Only known postage-stamp generators (scene modes / Seedream / explicit zoom).
+  // Do NOT blanket all video-track stills — that over-crops already-full product shots
+  // (founder 2026-07-20: "이번에는 다 커졌잖아").
   const isPostageRisk =
     isStillVisual &&
     !optOutZoom &&
     !TALKING_HEAD_MODES.has(_clipRenderMode) &&
     (POSTAGE_STAMP_MODES.has(_clipRenderMode)
       || isSeedreamStill
-      || explicitSubjectZoom >= 1.2
-      || clip.trackKind === 'video');
-  // EyeSafe stills park product in ~15% of the canvas. 4.5 was still small on some
-  // Seedream frames — 6.5 fills 9:16. Override via attributes.subject_zoom.
-  const NARROWSSAL_MIN_SCALE = 6.5;
+      || explicitSubjectZoom >= 1.2);
+  // Moderate crop: ban 우표 without turning every beat into ECU. Override via subject_zoom.
+  const NARROWSSAL_MIN_SCALE = 2.4;
   let effectiveScale = scale;
   if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban
   // Crop is applied by bloating media box (width/height %) + center translate — NOT
