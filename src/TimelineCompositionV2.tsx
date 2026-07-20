@@ -1436,7 +1436,12 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   }
 
   const isAudioAsset = clip.assetKind === 'audio';
-  const isVisualAsset = clip.assetKind === 'image' || clip.assetKind === 'video';
+  // CDN stills often lack mime/extension (Seedream signed URLs) — trackKind video+url
+  // is still a visual. Without this, isVisualAsset=false → 좁쌀 hard-ban never fires.
+  const isVisualAsset =
+    clip.assetKind === 'image' ||
+    clip.assetKind === 'video' ||
+    ((clip.trackKind === 'video' || clip.trackKind === 'overlay') && !!clip.url && !isAudioAsset);
 
   if (isAudioAsset || clip.trackKind === 'audio' || clip.trackKind === 'music' || clip.trackKind === 'sfx') {
     if (!clip.url) return null;
@@ -1577,15 +1582,11 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   // pipBottom*는 하위호환 참조용으로 남기되 pip은 더 이상 만들지 않는다.
   void isProofVisual; void pipBottomLeft; void pipBottomRight;
   const pipStyle: React.CSSProperties | null = null;
-  // ── 좁쌀 HARD BAN (founder 2026-07-20 EyeSafe 눈검수) ──────────────────────
-  // Pip 금지만으로는 부족: Seedream situation_pov가 "검은 9:16 한가운데 우표 피사체"를
-  // 생성하면 scale=1 cover로도 여전히 좁쌀로 보인다. 렌더러가 최종 방어선 —
-  // (1) scale<1 카드 배치 → 최소 1.0
-  // (2) 상황/씬 모드 또는 Seedream 생성 스틸 → 최소 2.2 중앙 크롭 확대
-  // (3) fit=contain 금지(cover 강제) on those modes
-  // subject_zoom attribute / manual scale≥1.8 은 존중. 토킹헤드 persona는 제외.
-  // Talking-head / persona: keep face framing (no forced crop-in).
-  // Everything else still: Seedream postage-stamp risk → force crop-in.
+  // ── 좁쌀 HARD BAN (founder 2026-07-20 EyeSafe — absolute) ─────────────────
+  // Pip ban alone is NOT enough: Seedream parks a postage-stamp subject in black
+  // 9:16. scale=1 cover still shows a tiny subject. Force crop-in on the MEDIA
+  // (not only the container) so overflow:hidden on AbsoluteFill actually clips.
+  // Opt-out: attributes.full_frame / no_subject_zoom. Persona talking-head exempt.
   const TALKING_HEAD_MODES = new Set(['persona', 'kol_narrator', 'avatar', 'talking_head']);
   const POSTAGE_STAMP_MODES = new Set([
     'situation_pov', 'scene_no_person', 'product_solo', 'hands_demo', 'before_after', 'social_proof',
@@ -1593,28 +1594,32 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const explicitSubjectZoom = Number(clipAttributes(clip).subject_zoom ?? 0);
   const optOutZoom = clipAttributes(clip).no_subject_zoom === true
     || clipAttributes(clip).full_frame === true;
+  const isStillVisual = isVisualAsset && !isVideo;
   const isSeedreamStill =
-    isVisualAsset &&
-    !isVideo &&
-    (_clipProvider.includes('seedream') || _clipProvider.includes('seedream-'));
+    isStillVisual &&
+    (_clipProvider.includes('seedream') || _clipProvider.includes('seedream-') || _clipProvider.includes('piapi'));
+  // Default: ANY still on the video track that isn't a talking-head is postage-risk.
+  // EyeSafe reels had render_mode on the artifact only — now merged; still fail-safe
+  // by treating plain video-track stills as risk unless opted out.
   const isPostageRisk =
-    isVisualAsset &&
-    !isVideo &&
+    isStillVisual &&
     !optOutZoom &&
     !TALKING_HEAD_MODES.has(_clipRenderMode) &&
     (POSTAGE_STAMP_MODES.has(_clipRenderMode)
       || isSeedreamStill
-      || explicitSubjectZoom >= 1.2);
-  const NARROWSSAL_MIN_SCALE = 2.2;
+      || explicitSubjectZoom >= 1.2
+      || clip.trackKind === 'video');
+  // 2.2 was too weak for extreme postage stamps (~10% subject). 4.5 fills 9:16.
+  const NARROWSSAL_MIN_SCALE = 4.5;
   let effectiveScale = scale;
   if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban
-  if (isPostageRisk && effectiveScale < 1.8) {
-    effectiveScale = Math.max(
-      effectiveScale,
-      explicitSubjectZoom >= 1.2 ? explicitSubjectZoom : NARROWSSAL_MIN_SCALE,
-    );
+  // subjectZoom is applied on the <Img> (mediaCropScale), not the outer AbsoluteFill,
+  // so CSS overflow:hidden on AbsoluteFill actually crops. Outer keeps user/ken scale.
+  let mediaCropScale = 1;
+  if (isPostageRisk) {
+    const target = explicitSubjectZoom >= 1.2 ? explicitSubjectZoom : NARROWSSAL_MIN_SCALE;
+    mediaCropScale = Math.max(1, target / Math.max(effectiveScale, 1));
   }
-  // Ken-burns / subshot multiply on top of effectiveScale below (not base `scale`).
   // Cinematic motion (founder 2026-06-15, Rule-of-One): B-roll visuals SLIDE in
   // (directional, motion-blurred entrance), full talking-head shots get a subtle PUNCH-IN
   // emphasis. Either is layered over the ambient ken-burns drift — one entrance + one drift,
@@ -1664,9 +1669,13 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const chromaDefs = chromaKey
     ? <ChromaKeyDefs id={chromaId} similarity={paramNumber(chromaKey.params?.similarity, 0.4)} />
     : null;
+  // Crop-zoom on the media element (transform-origin center) so AbsoluteFill overflow clips.
+  const mediaCrop: React.CSSProperties = mediaCropScale > 1.01
+    ? { transform: `scale(${mediaCropScale.toFixed(3)})`, transformOrigin: 'center center' }
+    : {};
   const mediaStyle = chromaKey
-    ? { ...baseReframed, filter: [(baseReframed as React.CSSProperties).filter, `url(#${chromaId})`].filter(Boolean).join(' ') }
-    : baseReframed;
+    ? { ...baseReframed, ...mediaCrop, filter: [(baseReframed as React.CSSProperties).filter, `url(#${chromaId})`].filter(Boolean).join(' ') }
+    : { ...baseReframed, ...mediaCrop };
 
   if (!clip.url) {
     const spWording = String(clipAttributes(clip).social_proof_wording ?? '').trim();
