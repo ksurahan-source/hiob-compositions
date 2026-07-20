@@ -1582,11 +1582,13 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   // pipBottom*는 하위호환 참조용으로 남기되 pip은 더 이상 만들지 않는다.
   void isProofVisual; void pipBottomLeft; void pipBottomRight;
   const pipStyle: React.CSSProperties | null = null;
-  // ── 좁쌀 HARD BAN (founder 2026-07-20 EyeSafe — absolute) ─────────────────
-  // Pip ban alone is NOT enough: Seedream parks a postage-stamp subject in black
-  // 9:16. scale=1 cover still shows a tiny subject. Force crop-in on the MEDIA
-  // (not only the container) so overflow:hidden on AbsoluteFill actually clips.
-  // Opt-out: attributes.full_frame / no_subject_zoom. Persona talking-head exempt.
+  // ── 좁쌀 HARD BAN (founder 2026-07-20 EyeSafe) ────────────────────────────
+  // (1) Card ban: scale < 1 → 1 (never 250×360 pip / Artemis card float).
+  // (2) Auto content-zoom REMOVED after 6.5× / 2.4× over-crop (founder: "다 커졌잖아"
+  //     / "아직도 커" on situation_pov beat 2). Per-image subject fill cannot be
+  //     guessed in the renderer — use editor 「피사체 확대」 (attributes.subject_zoom)
+  //     or regenerate with full-bleed prompts. Only explicit subject_zoom is honored.
+  // (3) fit=contain on scene/seedream stills → force cover (no letterbox card look).
   const TALKING_HEAD_MODES = new Set(['persona', 'kol_narrator', 'avatar', 'talking_head']);
   const POSTAGE_STAMP_MODES = new Set([
     'situation_pov', 'scene_no_person', 'product_solo', 'hands_demo', 'before_after', 'social_proof',
@@ -1598,26 +1600,18 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   const isSeedreamStill =
     isStillVisual &&
     (_clipProvider.includes('seedream') || _clipProvider.includes('seedream-') || _clipProvider.includes('piapi'));
-  // Only known postage-stamp generators (scene modes / Seedream / explicit zoom).
-  // Do NOT blanket all video-track stills — that over-crops already-full product shots
-  // (founder 2026-07-20: "이번에는 다 커졌잖아").
+  // Letterbox risk only (force cover) — NOT automatic crop scale.
   const isPostageRisk =
     isStillVisual &&
     !optOutZoom &&
     !TALKING_HEAD_MODES.has(_clipRenderMode) &&
-    (POSTAGE_STAMP_MODES.has(_clipRenderMode)
-      || isSeedreamStill
-      || explicitSubjectZoom >= 1.2);
-  // Moderate crop: ban 우표 without turning every beat into ECU. Override via subject_zoom.
-  const NARROWSSAL_MIN_SCALE = 2.4;
+    (POSTAGE_STAMP_MODES.has(_clipRenderMode) || isSeedreamStill);
   let effectiveScale = scale;
-  if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban
-  // Crop is applied by bloating media box (width/height %) + center translate — NOT
-  // CSS scale() on a 100% box (Remotion <Img> can ignore/clip transforms).
+  if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban only
+  // Explicit editor zoom only (attributes.subject_zoom from 「피사체 확대」).
   let mediaCropScale = 1;
-  if (isPostageRisk) {
-    const target = explicitSubjectZoom >= 1.2 ? explicitSubjectZoom : NARROWSSAL_MIN_SCALE;
-    mediaCropScale = Math.max(1, target / Math.max(effectiveScale, 1));
+  if (!optOutZoom && explicitSubjectZoom >= 1.2) {
+    mediaCropScale = Math.max(1, explicitSubjectZoom / Math.max(effectiveScale, 1));
   }
   // Cinematic motion (founder 2026-06-15, Rule-of-One): B-roll visuals SLIDE in
   // (directional, motion-blurred entrance), full talking-head shots get a subtle PUNCH-IN
