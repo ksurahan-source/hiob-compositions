@@ -1562,6 +1562,9 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   // (실사고: viewok 제품 컷이 검은 프레임에 좁쌀만한 제품). proof 비주얼과 동일하게 pip을
   // 우회해 풀블리드로 렌더한다. 발화 인물(persona/kol_narrator)만 narrator pip을 유지.
   const _clipRenderMode = String(clipAttributes(clip).render_mode ?? '').toLowerCase();
+  const _clipProvider = String(
+    clipAttributes(clip).provider ?? clipAttributes(clip).provider_model ?? '',
+  ).toLowerCase();
   const isFullBleedSceneVisual = [
     'social_proof', 'product_solo', 'hands_demo', 'before_after', 'scene_no_person', 'situation_pov',
   ].includes(_clipRenderMode);
@@ -1574,6 +1577,44 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   // pipBottom*는 하위호환 참조용으로 남기되 pip은 더 이상 만들지 않는다.
   void isProofVisual; void pipBottomLeft; void pipBottomRight;
   const pipStyle: React.CSSProperties | null = null;
+  // ── 좁쌀 HARD BAN (founder 2026-07-20 EyeSafe 눈검수) ──────────────────────
+  // Pip 금지만으로는 부족: Seedream situation_pov가 "검은 9:16 한가운데 우표 피사체"를
+  // 생성하면 scale=1 cover로도 여전히 좁쌀로 보인다. 렌더러가 최종 방어선 —
+  // (1) scale<1 카드 배치 → 최소 1.0
+  // (2) 상황/씬 모드 또는 Seedream 생성 스틸 → 최소 2.2 중앙 크롭 확대
+  // (3) fit=contain 금지(cover 강제) on those modes
+  // subject_zoom attribute / manual scale≥1.8 은 존중. 토킹헤드 persona는 제외.
+  // Talking-head / persona: keep face framing (no forced crop-in).
+  // Everything else still: Seedream postage-stamp risk → force crop-in.
+  const TALKING_HEAD_MODES = new Set(['persona', 'kol_narrator', 'avatar', 'talking_head']);
+  const POSTAGE_STAMP_MODES = new Set([
+    'situation_pov', 'scene_no_person', 'product_solo', 'hands_demo', 'before_after', 'social_proof',
+  ]);
+  const explicitSubjectZoom = Number(clipAttributes(clip).subject_zoom ?? 0);
+  const optOutZoom = clipAttributes(clip).no_subject_zoom === true
+    || clipAttributes(clip).full_frame === true;
+  const isSeedreamStill =
+    isVisualAsset &&
+    !isVideo &&
+    (_clipProvider.includes('seedream') || _clipProvider.includes('seedream-'));
+  const isPostageRisk =
+    isVisualAsset &&
+    !isVideo &&
+    !optOutZoom &&
+    !TALKING_HEAD_MODES.has(_clipRenderMode) &&
+    (POSTAGE_STAMP_MODES.has(_clipRenderMode)
+      || isSeedreamStill
+      || explicitSubjectZoom >= 1.2);
+  const NARROWSSAL_MIN_SCALE = 2.2;
+  let effectiveScale = scale;
+  if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban
+  if (isPostageRisk && effectiveScale < 1.8) {
+    effectiveScale = Math.max(
+      effectiveScale,
+      explicitSubjectZoom >= 1.2 ? explicitSubjectZoom : NARROWSSAL_MIN_SCALE,
+    );
+  }
+  // Ken-burns / subshot multiply on top of effectiveScale below (not base `scale`).
   // Cinematic motion (founder 2026-06-15, Rule-of-One): B-roll visuals SLIDE in
   // (directional, motion-blurred entrance), full talking-head shots get a subtle PUNCH-IN
   // emphasis. Either is layered over the ambient ken-burns drift — one entrance + one drift,
@@ -1590,7 +1631,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
     : '';
   const visualStyle: React.CSSProperties = {
     ...transformStyle,
-    transform: `${pan ? pan.transform + ' ' : ''}translate(${x * 50 + kb.x}%, ${y * 50 + kb.y}%) scale(${scale * kb.scale}) rotate(${rotation}deg)${effects.transform}${punch}`,
+    transform: `${pan ? pan.transform + ' ' : ''}translate(${x * 50 + kb.x}%, ${y * 50 + kb.y}%) scale(${effectiveScale * kb.scale}) rotate(${rotation}deg)${effects.transform}${punch}`,
     // MERGE the entrance motion-blur with any effect-driven filter (chromatic-split,
     // look, adjust, glow). The old `pan?.filter ?? …` DROPPED the effect filter whenever
     // a B-roll clip also had a slide-pan entrance (pan.filter is 'blur(0px)' for most of
@@ -1607,7 +1648,9 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   };
   // attributes.fit: 'contain' shows the WHOLE uploaded asset (letterboxed) instead of
   // the default cover-crop. Absent attribute ⇒ cover, byte-identical to before.
-  const baseMediaStyle = isProofHero ? proofCutawayMedia : proofFrame ? proofMedia : fitAttr === 'contain' ? containMedia : coverMedia;
+  // 좁쌀: postage-risk scene stills NEVER letterbox (contain keeps the stamp small on black).
+  const fitAttrEffective = isPostageRisk ? 'cover' : fitAttr;
+  const baseMediaStyle = isProofHero ? proofCutawayMedia : proofFrame ? proofMedia : fitAttrEffective === 'contain' ? containMedia : coverMedia;
   // Auto-reframe: shift cover-crop focus via objectPosition. Absent/center ⇒ byte-identical.
   const reframeAnchor = REFRAME_POSITION[String(clipAttributes(clip).reframe ?? '').toLowerCase()];
   const baseReframed = reframeAnchor && baseMediaStyle.objectFit === 'cover'
