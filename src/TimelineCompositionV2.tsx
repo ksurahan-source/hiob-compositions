@@ -1159,148 +1159,184 @@ function CaptionLine({
   );
 }
 
+interface CaptionEffectPlan {
+  captionStyle: Effect | undefined;
+  sticker: Effect | undefined;
+  glow: Effect | undefined;
+  pop: Effect | undefined;
+  stickerVariant: string;
+  stickerColor: string;
+  glowColor: string;
+}
+
+function resolveCaptionEffectPlan(clip: RenderClip): CaptionEffectPlan {
+  const captionStyle = effectByKind(clip, 'caption-style');
+  const sticker = effectByKinds(clip, ['caption-border-sticker', 'caption-flame', 'sticker']);
+  const glow = effectByKinds(clip, ['glow', 'caption-glow']);
+  const pop = effectByKind(clip, 'caption-pop');
+  const stickerVariant = sticker?.kind === 'caption-flame'
+    ? 'flame'
+    : paramString(sticker?.params?.variant, paramString(sticker?.params?.style, 'border'));
+  return {
+    captionStyle,
+    sticker,
+    glow,
+    pop,
+    stickerVariant,
+    stickerColor: paramString(sticker?.params?.color, '#ff7a18'),
+    glowColor: paramString(glow?.params?.color, 'rgba(255, 209, 102, 0.78)'),
+  };
+}
+
+function captionPopScale(effect: Effect | undefined, frame: number): number {
+  if (!effect) return 1;
+  return interpolate(frame, [0, 8, 16], [0.97, Math.min(paramNumber(effect.params?.scale, 1.03), 1.04), 1], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+}
+
+interface CaptionTimingPlan {
+  captionFrame: number;
+  hidden: boolean;
+  entrance: { opacity: number; transform: string };
+}
+
+function optionalNumberAttribute(attributes: Record<string, unknown>, key: string): number | undefined {
+  return typeof attributes[key] === 'number' ? attributes[key] as number : undefined;
+}
+
+function resolveCaptionTiming(
+  attributes: Record<string, unknown>,
+  template: CaptionTemplate,
+  frame: number,
+  fps: number,
+): CaptionTimingPlan {
+  const hasCaptionType = typeof attributes.caption_type === 'string';
+  const captionType = hasCaptionType ? attributes.caption_type as CaptionType : 'speaker-dialogue';
+  const typeConfig = CAPTION_DEFAULTS[captionType] ?? CAPTION_DEFAULTS['speaker-dialogue'];
+  const lagMs = hasCaptionType
+    ? resolveCaptionLagMs(captionType, optionalNumberAttribute(attributes, 'caption_lag_ms'))
+    : 0;
+  const holdMs = hasCaptionType
+    ? resolveCaptionHoldMs(captionType, optionalNumberAttribute(attributes, 'caption_hold_ms'))
+    : 0;
+  const lagFrames = lagMs > 0 ? Math.max(1, Math.round((lagMs / 1000) * fps)) : 0;
+  const holdFrames = holdMs > 0 ? Math.round((holdMs / 1000) * fps) : 0;
+  const captionFrame = Math.max(0, frame - lagFrames);
+  const entranceFrames = typeConfig.entranceDurationMs > 0
+    ? Math.max(1, Math.round((typeConfig.entranceDurationMs / 1000) * fps))
+    : 0;
+  const entranceProgress = entranceFrames > 0
+    ? interpolate(captionFrame, [0, entranceFrames], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+    : 1;
+  const entranceEffect = (attributes.caption_entrance_effect as string | undefined) ?? template.entrance;
+  return {
+    captionFrame,
+    hidden: (lagFrames > 0 && frame < lagFrames) || (holdFrames > 0 && captionFrame >= holdFrames),
+    entrance: applyTypeEntranceAnimation(entranceEffect, entranceProgress),
+  };
+}
+
+function resolvedCaptionTextStyle(
+  base: React.CSSProperties,
+  sceneType: SceneType,
+  localeConfig: LocaleConfig,
+  effects: CaptionEffectPlan,
+  frame: number,
+): React.CSSProperties {
+  const fontSize = sceneType === 'proof'
+    ? Number(base.fontSize)
+    : paramNumber(effects.captionStyle?.params?.fontSize, Number(base.fontSize));
+  return {
+    ...base,
+    fontFamily: captionFontFor(localeConfig),
+    color: paramString(effects.captionStyle?.params?.color, '#fff'),
+    background: paramString(effects.captionStyle?.params?.background, 'transparent'),
+    fontSize,
+    fontWeight: paramNumber(effects.captionStyle?.params?.fontWeight, Number(base.fontWeight)),
+    transform: `scale(${captionPopScale(effects.pop, frame)})`,
+    border: effects.sticker && effects.stickerVariant === 'border' ? `3px solid ${effects.stickerColor}` : base.border,
+    boxShadow: base.boxShadow,
+    textShadow: effects.glow
+      ? `0 0 16px ${effects.glowColor}, 0 0 8px ${effects.glowColor}, 0 2px 8px rgba(0,0,0,0.5)`
+      : base.textShadow,
+    position: 'relative',
+    overflow: 'visible',
+    whiteSpace: base.whiteSpace,
+  };
+}
+
+function captionRootStyle(
+  transformStyle: React.CSSProperties,
+  sceneType: SceneType,
+  captionPosition: string | undefined,
+  entrance: CaptionTimingPlan['entrance'],
+): React.CSSProperties {
+  return {
+    ...transformStyle,
+    ...captionContainerForScene(sceneType, captionPosition),
+    ...(entrance.opacity < 1
+      ? { opacity: entrance.opacity * ((transformStyle.opacity as number | undefined) ?? 1) }
+      : {}),
+    ...(entrance.transform
+      ? { transform: [transformStyle.transform, entrance.transform].filter(Boolean).join(' ') }
+      : {}),
+  };
+}
+
+function CaptionSticker({ effect, variant, color, frame }: {
+  effect: Effect | undefined;
+  variant: string;
+  color: string;
+  frame: number;
+}) {
+  if (!effect || variant === 'border') return null;
+  return (
+    <span
+      style={{
+        position: 'absolute',
+        inset: variant === 'flame' ? -14 : -9,
+        zIndex: -1,
+        borderRadius: variant === 'ring' ? 999 : 10,
+        border: variant === 'ring' ? `4px solid ${color}` : undefined,
+        background: variant === 'flame'
+          ? `conic-gradient(from ${frame * 8}deg, transparent 0 12%, ${color} 18%, #ffd166 24%, transparent 34% 52%, ${color} 60%, transparent 72% 100%)`
+          : undefined,
+        filter: variant === 'flame' ? 'blur(2px)' : `drop-shadow(0 0 14px ${color})`,
+        opacity: paramNumber(effect.params?.opacity, 0.8),
+      }}
+    />
+  );
+}
+
 function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip; transformStyle: React.CSSProperties; sceneType: SceneType }) {
   const { fps } = useVideoConfig();
   const frame = useCurrentFrame();
   const localeConfig = useContext(LocaleConfigContext);
-  const durationInFrames = msToDurationFrames(clip.durationMs, fps);
-  const captionAttrs = (clip.attributes ?? {}) as Record<string, unknown>;
-  // 키워드 색은 이제 자막 템플릿 팔레트(시맨틱)가 결정 — 구 brand_point_color/accent 경로는 은퇴
-  // (founder 2026-07-12 blanket 주황 오프). 브랜드 포인트색은 TestimonialCard 등에서만 CAPTION_ACCENT 사용.
-  // CTA scene = sharp everywhere; every other scene softens its 부수(non-keyword) words.
-  const secondaryBlurPx = sceneType === 'cta' ? 0 : SECONDARY_CAPTION_BLUR_PX;
-  // Caption strategy (founder 2026-06-15): the power-word is a COLORED word over the thick
-  // black outline (NOT a box); metrics/money go green; emotional words get a micro-shake.
-  const captionTextRaw = typeof clip.textContent === 'string' ? clip.textContent : '';
-  const isEmotional = /[!?！？]|충격|대박|미쳐|미친|폭발|진짜|레전드|실화|소름|역대급|망했|실패/.test(captionTextRaw);
+  const attributes = clipAttributes(clip);
+  const text = typeof clip.textContent === 'string' ? clip.textContent : '';
+  const emotional = /[!?！？]|충격|대박|미쳐|미친|폭발|진짜|레전드|실화|소름|역대급|망했|실패/.test(text);
   const baseTextStyle = captionBaseStyle(sceneType);
-  // CAPTION TEMPLATE (founder 2026-07-12 "전부 구현 + 시의적절 템플릿화"): 씬 감정 → 자막
-  // 템플릿(데코·색·키워드모션·진입)을 자동 선택. clip.attributes.caption_template 명시 시 우선.
-  const captionTemplate = resolveCaptionTemplate(clip, sceneType, captionTextRaw);
-  const kwPaletteHex = CAPTION_PALETTE_HEX[captionTemplate.palette];
-  const decoColor = captionDecoColor(captionTemplate, kwPaletteHex);
-  const captionStyleEffect = effectByKind(clip, 'caption-style');
-  const stickerEffect = effectByKinds(clip, ['caption-border-sticker', 'caption-flame', 'sticker']);
-  const glowEffect = effectByKinds(clip, ['glow', 'caption-glow']);
-  const popEffect = effectByKind(clip, 'caption-pop');
-  const stickerVariant = stickerEffect?.kind === 'caption-flame'
-    ? 'flame'
-    : paramString(stickerEffect?.params?.variant, paramString(stickerEffect?.params?.style, 'border'));
-  const stickerColor = paramString(stickerEffect?.params?.color, '#ff7a18');
-  const glowColor = paramString(glowEffect?.params?.color, 'rgba(255, 209, 102, 0.78)');
-  const resolvedFontSize =
-    sceneType === 'proof'
-      ? Number(baseTextStyle.fontSize)
-      : paramNumber(captionStyleEffect?.params?.fontSize, Number(baseTextStyle.fontSize));
-  const popScale = popEffect
-    ? interpolate(frame, [0, 8, 16], [0.97, Math.min(paramNumber(popEffect.params?.scale, 1.03), 1.04), 1], {
-        extrapolateLeft: 'clamp',
-        extrapolateRight: 'clamp',
-      })
-    : 1;
-  // EDIT-2.2 + 2.3: per-type entrance animation + lag/hold.
-  // Lag/hold only activate when caption_type is EXPLICITLY stamped on the clip so that
-  // legacy clips (no caption_type attr) remain byte-identical to previous renders.
-  // speaker-dialogue has lag=0 and entranceDurationMs=0 → fully byte-identical.
-  const hasCaptionType = typeof captionAttrs.caption_type === 'string';
-  const captionType = hasCaptionType ? (captionAttrs.caption_type as CaptionType) : 'speaker-dialogue';
-  const typeConfig = CAPTION_DEFAULTS[captionType] ?? CAPTION_DEFAULTS['speaker-dialogue'];
-  // 진입 우선순위: 명시 attr → 자막 템플릿 → caption_type 기본. (진입은 caption_type 있을 때만 발화 —
-  // 레거시 클립은 entranceDurationFrames=0 이라 byte-identical.)
-  const entranceEffect = (captionAttrs.caption_entrance_effect as string | undefined) ?? captionTemplate.entrance;
-  const entranceDurationMs = typeConfig.entranceDurationMs;
-  // EDIT-2.3: lag — caption appears lagMs after clip startMs.
-  const lagMs = hasCaptionType
-    ? resolveCaptionLagMs(captionType, typeof captionAttrs.caption_lag_ms === 'number' ? captionAttrs.caption_lag_ms as number : undefined)
-    : 0;
-  // EDIT-2.3: hold — caption stays visible for at most holdMs after it appears.
-  const holdMs = hasCaptionType
-    ? resolveCaptionHoldMs(captionType, typeof captionAttrs.caption_hold_ms === 'number' ? captionAttrs.caption_hold_ms as number : undefined)
-    : 0;
-  const lagFrames = lagMs > 0 ? Math.max(1, Math.round((lagMs / 1000) * fps)) : 0;
-  const holdFrames = holdMs > 0 ? Math.round((holdMs / 1000) * fps) : 0;
-  // captionFrame: frame relative to caption's visible start (0 = first visible frame after lag).
-  const captionFrame = Math.max(0, frame - lagFrames);
-  const entranceDurationFrames = entranceDurationMs > 0 ? Math.max(1, Math.round((entranceDurationMs / 1000) * fps)) : 0;
-  const entranceProgress = entranceDurationFrames > 0
-    ? interpolate(captionFrame, [0, entranceDurationFrames], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-    : 1;
-  const typeEntrance = applyTypeEntranceAnimation(entranceEffect, entranceProgress);
-  const resolvedCaptionText: React.CSSProperties = {
-    ...baseTextStyle,
-    // Locale-aware font fallback (ko ⇒ identical to baseTextStyle's CAPTION_FONT).
-    fontFamily: captionFontFor(localeConfig),
-    color: paramString(captionStyleEffect?.params?.color, '#fff'),
-    background: paramString(captionStyleEffect?.params?.background, 'transparent'),
-    fontSize: resolvedFontSize,
-    fontWeight: paramNumber(captionStyleEffect?.params?.fontWeight, Number(baseTextStyle.fontWeight)),
-    transform: `scale(${popScale})`,
-    border: stickerEffect && stickerVariant === 'border' ? `3px solid ${stickerColor}` : baseTextStyle.border,
-    // Caption glow (founder 2026-06-15 "NOT a box"): glow the TEXT only (textShadow below),
-    // never the container. The old boxShadow halo wrapped the caption div's bounding rectangle,
-    // which rendered as an orange frame around the whole caption — exactly the box the founder
-    // rejected. Keep the glow on the glyphs; drop the rectangular halo.
-    boxShadow: baseTextStyle.boxShadow,
-    textShadow: glowEffect ? `0 0 16px ${glowColor}, 0 0 8px ${glowColor}, 0 2px 8px rgba(0,0,0,0.5)` : baseTextStyle.textShadow,
-    position: 'relative',
-    overflow: 'visible',
-    // LOOP_UIUX TRACK B: proof captions WRAP like every other beat (was 'nowrap', which
-    // clipped the social-proof line off-frame and forced the tiny 38px size). Now uniform.
-    whiteSpace: baseTextStyle.whiteSpace,
-  };
-  // Up to 3 lines now that the band is taller (400px) — long proof/review lines wrap
-  // instead of overflowing the width at the new uniform 100px size.
+  const template = resolveCaptionTemplate(clip, sceneType, text);
+  const paletteColor = CAPTION_PALETTE_HEX[template.palette];
+  const effects = resolveCaptionEffectPlan(clip);
+  const timing = resolveCaptionTiming(attributes, template, frame, fps);
+  if (timing.hidden) return null;
+
   const lines = captionLineGroups(clip.textContent, 3, localeConfig.charsPerLine, localeConfig.lineBreak);
+  const durationInFrames = msToDurationFrames(clip.durationMs, fps);
   const revealStep = Math.max(10, Math.min(18, Math.floor(durationInFrames / Math.max(lines.length + 1, 3))));
-  // REC-0047 개정 (2026-07-10 founder): 카라오케 '제한 해제' — 단 줄(line) 단위만.
-  // 각 줄은 자기 첫 단어의 발화 시점(wordTimings)에 나타난다. 단어 단위 리빌은 계속 금지.
-  // wordTimings 없는 레거시 클립은 기존 고정 간격(revealStep) 그대로 — byte-identical.
   const lineStartFrames = captionLineStartFrames(lines, clip.wordTimings, revealStep, fps);
-
-  // EDIT-2.3: lag window — caption is invisible until lagFrames have elapsed.
-  // Skipped (lagFrames=0) for legacy clips and speaker-dialogue → byte-identical.
-  if (lagFrames > 0 && frame < lagFrames) return null;
-  // EDIT-2.3: hold window — caption hides after holdMs of visibility.
-  // Skipped (holdFrames=0) for legacy clips → byte-identical.
-  if (holdFrames > 0 && captionFrame >= holdFrames) return null;
-
-  // TMPL-6DO: read 六道 position preset from clip attributes.
-  const captionPosition = typeof captionAttrs.caption_position === 'string' ? captionAttrs.caption_position : undefined;
+  const captionPosition = typeof attributes.caption_position === 'string' ? attributes.caption_position : undefined;
 
   return (
-    <AbsoluteFill style={{
-      ...transformStyle,
-      ...captionContainerForScene(sceneType, captionPosition),
-      // EDIT-2.2: blend entrance opacity multiplicatively and append entrance transform.
-      // When typeEntrance = {opacity:1, transform:''} (speaker-dialogue / fully revealed)
-      // neither branch fires → style is byte-identical to the previous render path.
-      ...(typeEntrance.opacity < 1
-        ? { opacity: typeEntrance.opacity * ((transformStyle.opacity as number | undefined) ?? 1) }
-        : {}),
-      ...(typeEntrance.transform
-        ? { transform: [transformStyle.transform, typeEntrance.transform].filter(Boolean).join(' ') }
-        : {}),
-    }}>
-      <div style={resolvedCaptionText}>
-        {stickerEffect && stickerVariant !== 'border' ? (
-          <span
-            style={{
-              position: 'absolute',
-              inset: stickerVariant === 'flame' ? -14 : -9,
-              zIndex: -1,
-              borderRadius: stickerVariant === 'ring' ? 999 : 10,
-              border: stickerVariant === 'ring' ? `4px solid ${stickerColor}` : undefined,
-              background:
-                stickerVariant === 'flame'
-                  ? `conic-gradient(from ${frame * 8}deg, transparent 0 12%, ${stickerColor} 18%, #ffd166 24%, transparent 34% 52%, ${stickerColor} 60%, transparent 72% 100%)`
-                  : undefined,
-              filter: stickerVariant === 'flame' ? 'blur(2px)' : `drop-shadow(0 0 14px ${stickerColor})`,
-              opacity: paramNumber(stickerEffect.params?.opacity, 0.8),
-            }}
-          />
+    <AbsoluteFill style={captionRootStyle(transformStyle, sceneType, captionPosition, timing.entrance)}>
+      <div style={resolvedCaptionTextStyle(baseTextStyle, sceneType, localeConfig, effects, frame)}>
+        <CaptionSticker effect={effects.sticker} variant={effects.stickerVariant} color={effects.stickerColor} frame={frame} />
+        {template.deco !== 'none' ? (
+          <CaptionDecoLayer deco={template.deco} color={captionDecoColor(template, paletteColor)} />
         ) : null}
-        {/* 감정 데코 (불꽃·반짝·임팩트·물방울·의심·두근) — 텍스트 뒤에서 frame 구동 */}
-        {captionTemplate.deco !== 'none' ? <CaptionDecoLayer deco={captionTemplate.deco} color={decoColor} /> : null}
         {lines.map((line, index) => (
           <CaptionLine
             key={index}
@@ -1308,13 +1344,13 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
             index={index}
             totalLines={lines.length}
             lineStart={lineStartFrames[index]}
-            captionFrame={captionFrame}
+            captionFrame={timing.captionFrame}
             frame={frame}
-            emotional={isEmotional}
-            keywordColor={kwPaletteHex}
-            template={captionTemplate}
+            emotional={emotional}
+            keywordColor={paletteColor}
+            template={template}
             baseTextStyle={baseTextStyle}
-            secondaryBlurPx={secondaryBlurPx}
+            secondaryBlurPx={sceneType === 'cta' ? 0 : SECONDARY_CAPTION_BLUR_PX}
           />
         ))}
       </div>
