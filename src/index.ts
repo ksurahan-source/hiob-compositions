@@ -16,6 +16,10 @@ export type { RendererProps, ElementRendererFn } from './lib/elementRenderers';
 export { renderPropsToReelDoc } from './lib/TimelineCompositionV2Adapter';
 export { resolveLocaleConfig, DEFAULT_LOCALE_CONFIG } from './localeConfig';
 export type { LocaleConfig } from './localeConfig';
+export {
+  EXPECTED_REMOTION_VERSION,
+  assertRemotionRuntimeVersion,
+} from './remotionRuntime';
 
 /** Shared aspect → dimensions map. Single source of truth. */
 export const ASPECT_DIMENSIONS = {
