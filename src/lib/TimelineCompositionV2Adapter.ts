@@ -11,6 +11,77 @@
 import type { RenderProps, RenderClip } from '@hiob/timeline';
 import type { ReelDoc } from '@hiob/timeline/schema';
 
+type ReelElement = ReelDoc['elements'][number];
+type VisualElement = Exclude<ReelElement, { type: 'audio' }>;
+
+function visualElement(clip: RenderClip): ReelElement | null {
+  if (!clip.url) return null;
+  return {
+    type: 'video',
+    id: clip.id,
+    src: clip.url,
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    opacity: 1,
+    zIndex: clip.zIndex,
+    duration: clip.durationMs,
+    scale: clip.transforms?.scale ?? 1,
+    rotation: clip.transforms?.rotation ?? 0,
+    loop: false,
+    muted: false,
+    startFrom: clip.inMs,
+    volume: clip.volume ?? 1,
+    fit: 'cover',
+    animations: [],
+  };
+}
+
+function textElement(clip: RenderClip): ReelElement | null {
+  if (!clip.textContent) return null;
+  return {
+    type: 'text',
+    id: clip.id,
+    text: clip.textContent,
+    x: 0,
+    y: 75,
+    width: 100,
+    fontSize: 52,
+    fontFamily: 'inherit',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    opacity: 1,
+    zIndex: clip.zIndex + 10,
+    blur: false,
+    animations: [],
+  };
+}
+
+function audioElement(clip: RenderClip): ReelElement | null {
+  if (!clip.url) return null;
+  const categories = { audio: 'voice', music: 'music', sfx: 'sfx' } as const;
+  const kind = clip.trackKind as keyof typeof categories;
+  return {
+    type: 'audio',
+    id: clip.id,
+    src: clip.url,
+    startTime: clip.startMs,
+    duration: clip.durationMs,
+    volume: clip.volume ?? 1,
+    loop: false,
+    category: categories[kind],
+  };
+}
+
+function convertClip(clip: RenderClip): ReelElement | null {
+  if (clip.trackKind === 'video') return visualElement(clip);
+  if (['caption', 'title', 'overlay'].includes(clip.trackKind)) return textElement(clip);
+  if (['audio', 'music', 'sfx'].includes(clip.trackKind)) return audioElement(clip);
+  return null;
+}
+
 /**
  * Convert legacy RenderProps (from @hiob/timeline) to ReelDoc format.
  *
@@ -28,75 +99,23 @@ export function renderPropsToReelDoc(renderProps: RenderProps): ReelDoc {
   const { clips, fps, width, height, durationMs, locale } = renderProps;
   const aspect = renderProps.aspect ?? '9:16';
 
-  const visualElements: ReelDoc['elements'] = [];
+  const visualElements: VisualElement[] = [];
   const audioElements: ReelDoc['elements'] = [];
 
   for (const clip of clips) {
-    const kind = clip.trackKind;
-
-    if (kind === 'video') {
-      if (!clip.url) continue;
-      visualElements.push({
-        type: 'video',
-        id: clip.id,
-        src: clip.url,
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100,
-        opacity: 1,
-        zIndex: clip.zIndex,
-        duration: clip.durationMs,
-        scale: clip.transforms?.scale ?? 1,
-        rotation: clip.transforms?.rotation ?? 0,
-        loop: false,
-        muted: false,
-        startFrom: clip.inMs,
-        volume: clip.volume ?? 1,
-        fit: 'cover',
-        animations: [],
-      });
-    } else if (kind === 'caption' || kind === 'title' || kind === 'overlay') {
-      if (!clip.textContent) continue;
-      visualElements.push({
-        type: 'text',
-        id: clip.id,
-        text: clip.textContent,
-        x: 0,
-        y: 75,
-        width: 100,
-        fontSize: 52,
-        fontFamily: 'inherit',
-        fontWeight: '700',
-        color: '#FFFFFF',
-        textAlign: 'center',
-        opacity: 1,
-        zIndex: clip.zIndex + 10,
-        blur: false,
-        animations: [],
-      });
-    } else if (kind === 'audio' || kind === 'music' || kind === 'sfx') {
-      if (!clip.url) continue;
-      audioElements.push({
-        type: 'audio',
-        id: clip.id,
-        src: clip.url,
-        startTime: clip.startMs,
-        duration: clip.durationMs,
-        volume: clip.volume ?? 1,
-        loop: false,
-        category: kind === 'music' ? 'music' : kind === 'sfx' ? 'sfx' : 'voice',
-      });
-    }
+    const element = convertClip(clip);
+    if (!element) continue;
+    if (element.type === 'audio') audioElements.push(element);
+    else visualElements.push(element);
   }
 
   const elements: ReelDoc['elements'] = [
-    ...visualElements.sort((a, b) => ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0)),
+    ...visualElements.sort((a, b) => a.zIndex - b.zIndex),
     ...audioElements,
   ];
 
   return {
-    id: `adapted-${Date.now()}`,
+    id: crypto.randomUUID(),
     version: '1.0',
     schemaHash: 'adapter-v1',
     created: new Date().toISOString(),

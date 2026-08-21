@@ -191,4 +191,12 @@ function deriveDurationMs(elements: readonly Element[]): number {
   return max;
 }
 
+/** Internal deterministic surface used by the source-quality contract tests. */
+export const __testing = {
+  ElementBridge,
+  msToFrame,
+  elementDurationMs,
+  deriveDurationMs,
+};
+
 export default ReelDocCanvas;

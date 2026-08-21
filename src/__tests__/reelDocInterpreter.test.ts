@@ -18,6 +18,9 @@ import {
 } from '../lib/elementRenderers/index.ts';
 import { validateReelDoc } from '@hiob/timeline/schema';
 import { MINIMAL_REEL_DOC, ANIMATED_REEL_DOC } from '../__fixtures__/minimalReelDoc.fixture.ts';
+import { expect, test } from 'vitest';
+
+test('interprets ReelDoc animation and renderer contracts', () => {
 
 let passed = 0;
 let failed = 0;
@@ -209,6 +212,7 @@ console.log('\n8. Fixture validation against ReelDocSchema');
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n──────────────────────────────────────────────────`);
 console.log(`Results: ${passed} passed, ${failed} failed`);
-if (failed > 0) {
-  process.exit(1);
-}
+expect(failed).toBe(0);
+expect(passed).toBeGreaterThan(0);
+if (failed > 0) throw new Error(`${failed} ReelDoc interpreter assertions failed`);
+});

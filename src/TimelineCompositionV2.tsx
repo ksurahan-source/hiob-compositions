@@ -25,7 +25,7 @@ import {
 import { Gif } from '@remotion/gif';
 import type * as React from 'react';
 import { createContext, useContext } from 'react';
-import type { RenderProps, RenderClip, CaptionType } from '@hiob/timeline';
+import type { RenderProps, RenderClip, CaptionType, Effect } from '@hiob/timeline';
 import { CAPTION_DEFAULTS, resolveCaptionLagMs, resolveCaptionHoldMs } from '@hiob/timeline';
 // Cinematic-edit primitives (founder 2026-06-15 visual strategy), all deterministic.
 import { FilmGrain } from './effects/filmGrain';
@@ -89,14 +89,6 @@ const SIX_DO_CAPTION_POSITIONS: Record<string, { y: number; height: number }> = 
   'mid':        { y: 780, height: 260 },  // 지옥/인간 — 긴장·도전
   'mid-bottom': { y: 970, height: 250 },  // 아귀 — 열망·하향 (max y+h=1220 < 1248 ✓)
 };
-const SCENE_TEMPLATES: Record<SceneType, { hero: 'full' | 'safe-card' | 'none'; narrator: 'full' | 'voiceover' | 'pip-left' | 'pip-right'; caption: 'hook' | 'band' }> = {
-  hook: { hero: 'full', narrator: 'full', caption: 'hook' },
-  narrator: { hero: 'none', narrator: 'full', caption: 'band' },
-  proof: { hero: 'safe-card', narrator: 'voiceover', caption: 'band' },
-  product: { hero: 'full', narrator: 'pip-right', caption: 'band' },
-  cta: { hero: 'full', narrator: 'full', caption: 'band' },
-};
-
 function msToStartFrame(ms: number, fps: number): number {
   return Math.max(0, Math.round((ms / 1000) * fps));
 }
@@ -220,22 +212,6 @@ function resolveSceneLayer(clip: RenderClip, scene_type: SceneType): SceneLayer 
   return 'narrator';
 }
 
-type SceneWindow = { startMs: number; endMs: number; scene_type: SceneType };
-
-function clipWindow(clip: RenderClip): SceneWindow {
-  return { startMs: clip.startMs, endMs: clip.startMs + clip.durationMs, scene_type: resolveSceneType(clip) };
-}
-
-function isInsideWindow(ms: number, windows: SceneWindow[]): boolean {
-  return windows.some((w) => ms >= w.startMs && ms < w.endMs);
-}
-
-function overlapsWindow(clip: RenderClip, windows: SceneWindow[]): boolean {
-  const start = clip.startMs;
-  const end = clip.startMs + clip.durationMs;
-  return windows.some((w) => start < w.endMs && end > w.startMs);
-}
-
 function effectByKinds(clip: RenderClip, kinds: string[]) {
   return (clip.effects ?? []).find((effect) => kinds.includes(effect.kind));
 }
@@ -311,127 +287,198 @@ function maskClipPath(shape: string, size: number, x: number, y: number): string
   }
 }
 
-function transformEffects(clip: RenderClip, frame: number, fps: number, durationInFrames: number) {
-  let opacity = 1;
-  let filter = '';
-  let transform = '';
-  let clipPath = '';
-  let blendMode = '';
-  const tMs = (frame / fps) * 1000;
+interface EffectTransformState {
+  opacity: number;
+  filter: string;
+  transform: string;
+  clipPath: string;
+  blendMode: string;
+}
 
-  for (const eff of clip.effects ?? []) {
-    // CapCut effect enable/disable — a disabled effect is skipped entirely (byte-identical
-    // to not having it), so the editor can toggle an effect off without deleting it.
-    if ((eff as { disabled?: boolean }).disabled === true) continue;
-    if (eff.kind === 'fade-in') {
-      const dMs = paramNumber(eff.params?.durationMs, 300);
-      opacity *= dMs > 0 ? Math.min(1, tMs / dMs) : 1;
-    } else if (eff.kind === 'fade-out') {
-      const dMs = paramNumber(eff.params?.durationMs, 300);
-      if (dMs > 0 && tMs > clip.durationMs - dMs) {
-        opacity *= Math.max(0, (clip.durationMs - tMs) / dMs);
-      }
-    } else if (eff.kind === 'blur') {
-      filter += `${filter ? ' ' : ''}blur(${paramNumber(eff.params?.radiusPx, 6)}px)`;
-    } else if (eff.kind === 'glow') {
-      const color = paramString(eff.params?.color, 'rgba(255, 209, 102, 0.72)');
-      // E1 bug 1: accept radiusPx (what the inspector now sends) OR a legacy
-      // 0..1 `intensity`, and CLAMP to a safe range. An unclamped/garbage radius
-      // ballooned the drop-shadow filter and blew the layer off-canvas (blank clip).
-      const rawRadius = eff.params?.radiusPx != null
-        ? paramNumber(eff.params?.radiusPx, 16)
-        : paramNumber(eff.params?.intensity, 0.55) * 28;
-      const radius = Math.max(0, Math.min(64, rawRadius));
-      filter += `${filter ? ' ' : ''}drop-shadow(0 0 ${radius}px ${color})`;
-    } else if (eff.kind === 'shake') {
-      const amplitude = paramNumber(eff.params?.amplitudePx, 8);
-      const speed = paramNumber(eff.params?.speed, 1.7);
-      const x = Math.sin(frame * speed) * amplitude;
-      const y = Math.cos(frame * speed * 1.31) * amplitude * 0.42;
-      transform += ` translate(${x}px, ${y}px)`;
-    } else if (eff.kind === 'ken-burns') {
-      const from = paramNumber(eff.params?.from, 1.0);
-      const to = paramNumber(eff.params?.to, 1.15);
-      const progress = Math.min(1, Math.max(0, tMs / Math.max(1, clip.durationMs)));
-      transform += ` scale(${from + (to - from) * progress})`;
-    } else if (eff.kind === 'zoom-in' || eff.kind === 'zoom-out') {
-      const amount = paramNumber(eff.params?.amount, 0.12);
-      const progress = Math.min(1, Math.max(0, frame / Math.max(1, durationInFrames)));
-      const scale = eff.kind === 'zoom-in' ? 1 + amount * progress : 1 + amount * (1 - progress);
-      transform += ` scale(${scale})`;
-    } else if (eff.kind === 'transition') {
-      // G1 TRANSITIONS — an entrance ('in') or exit ('out') animation over durationMs at a
-      // cut. type: fade | crossfade | wipe | slide-l/r/u/d | zoom. p: 0 (extreme) → 1 (full).
-      const type = paramString(eff.params?.type, 'fade');
-      const dMs = paramNumber(eff.params?.durationMs, 500);
-      const dir = paramString(eff.params?.dir, 'in');
-      let p = 1;
-      if (dir === 'out') {
-        p = dMs > 0 && tMs > clip.durationMs - dMs ? Math.max(0, Math.min(1, (clip.durationMs - tMs) / dMs)) : 1;
-      } else {
-        p = dMs > 0 ? Math.max(0, Math.min(1, tMs / dMs)) : 1;
-      }
-      if (type === 'fade' || type === 'crossfade') opacity *= p;
-      else if (type === 'wipe') clipPath = `inset(0 ${(1 - p) * 100}% 0 0)`;
-      else if (type === 'slide-l') transform += ` translateX(${(p - 1) * 100}%)`;
-      else if (type === 'slide-r') transform += ` translateX(${(1 - p) * 100}%)`;
-      else if (type === 'slide-u') transform += ` translateY(${(1 - p) * 100}%)`;
-      else if (type === 'slide-d') transform += ` translateY(${(p - 1) * 100}%)`;
-      else if (type === 'zoom') { transform += ` scale(${0.6 + 0.4 * p})`; opacity *= p; }
-    } else if (eff.kind === 'filter') {
-      // G2 FILTERS — color/look LUT-style preset.
-      filter += `${filter ? ' ' : ''}${lookFilter(paramString(eff.params?.preset, 'warm'))}`;
-    } else if (eff.kind === 'adjust') {
-      // G3 ADJUSTMENT — per-clip color grade. brightness/contrast/saturation: 1 = neutral.
-      // temperature: -100 (cool) .. +100 (warm), approximated with sepia / hue-rotate.
-      const b = Math.max(0, Math.min(3, paramNumber(eff.params?.brightness, 1)));
-      const c = Math.max(0, Math.min(3, paramNumber(eff.params?.contrast, 1)));
-      const s = Math.max(0, Math.min(3, paramNumber(eff.params?.saturation, 1)));
-      const temp = Math.max(-100, Math.min(100, paramNumber(eff.params?.temperature, 0)));
-      filter += `${filter ? ' ' : ''}brightness(${b}) contrast(${c}) saturate(${s})`;
-      if (temp > 0) filter += ` sepia(${(temp / 100) * 0.5})`;
-      else if (temp < 0) filter += ` hue-rotate(${(temp / 100) * 18}deg)`;
-    } else if (eff.kind === 'chromatic-split') {
-      // RGB-split fringe (chromatic aberration) — a pure CSS filter fragment, so it
-      // composes with the look/adjust filters above and stays preview==render.
-      filter += `${filter ? ' ' : ''}${chromaticSplitFilter(frame, {
-        intensity: paramNumber(eff.params?.intensity, 4),
-        alpha: paramNumber(eff.params?.alpha, 0.6),
-        pulse: eff.params?.pulse === true || eff.params?.pulse === 'true',
-        axis: paramString(eff.params?.axis, 'x'),
-      })}`;
-    } else if (eff.kind === 'speed-ramp') {
-      // Editorial whip: a brief directional translate + scale punch + motion-blur spike.
-      // MOTION speed-ramp (camera whip), not source time-remapping — see speedRamp.tsx.
-      const ramp = speedRampStyle(frame, durationInFrames, {
-        at: paramNumber(eff.params?.at, 0.68),
-        frames: paramNumber(eff.params?.frames, 6),
-        intensity: paramNumber(eff.params?.intensity, 8),
-        blur: paramNumber(eff.params?.blur, 16),
-        zoom: paramNumber(eff.params?.zoom, 1.06),
-        direction: paramString(eff.params?.direction, 'left'),
-      });
-      transform += ramp.transform;
-      if (ramp.filter) filter += `${filter ? ' ' : ''}${ramp.filter}`;
-    } else if (eff.kind === 'opacity') {
-      // CapCut per-clip opacity — multiplies the clip's alpha (1 = opaque, 0 = invisible).
-      // Composes with fades; overlay clips dial this down to blend over the layer beneath.
-      opacity *= Math.max(0, Math.min(1, paramNumber(eff.params?.value, 1)));
-    } else if (eff.kind === 'blend') {
-      // CapCut blend mode — how this clip composites over clips beneath it in z-order.
-      blendMode = paramString(eff.params?.mode, 'normal');
-    } else if (eff.kind === 'mask') {
-      // CapCut shape mask — reveal only a shape of the clip (circle/ellipse/rect/rounded).
-      clipPath = maskClipPath(
-        paramString(eff.params?.shape, 'circle'),
-        paramNumber(eff.params?.size, 70),
-        paramNumber(eff.params?.x, 50),
-        paramNumber(eff.params?.y, 50),
-      ) || clipPath;
-    }
+interface EffectTransformContext {
+  clip: RenderClip;
+  frame: number;
+  durationInFrames: number;
+  tMs: number;
+}
+
+type EffectHandler = (
+  effect: Effect,
+  context: EffectTransformContext,
+  state: EffectTransformState,
+) => void;
+
+function appendCss(current: string, value: string): string {
+  return current ? `${current} ${value}` : value;
+}
+
+function fadeInEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const durationMs = paramNumber(effect.params?.durationMs, 300);
+  state.opacity *= durationMs > 0 ? Math.min(1, context.tMs / durationMs) : 1;
+}
+
+function fadeOutEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const durationMs = paramNumber(effect.params?.durationMs, 300);
+  if (durationMs <= 0 || context.tMs <= context.clip.durationMs - durationMs) return;
+  state.opacity *= Math.max(0, (context.clip.durationMs - context.tMs) / durationMs);
+}
+
+function blurEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  state.filter = appendCss(state.filter, `blur(${paramNumber(effect.params?.radiusPx, 6)}px)`);
+}
+
+function glowEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  const color = paramString(effect.params?.color, 'rgba(255, 209, 102, 0.72)');
+  const rawRadius = effect.params?.radiusPx != null
+    ? paramNumber(effect.params.radiusPx, 16)
+    : paramNumber(effect.params?.intensity, 0.55) * 28;
+  const radius = Math.max(0, Math.min(64, rawRadius));
+  state.filter = appendCss(state.filter, `drop-shadow(0 0 ${radius}px ${color})`);
+}
+
+function shakeEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const amplitude = paramNumber(effect.params?.amplitudePx, 8);
+  const speed = paramNumber(effect.params?.speed, 1.7);
+  const x = Math.sin(context.frame * speed) * amplitude;
+  const y = Math.cos(context.frame * speed * 1.31) * amplitude * 0.42;
+  state.transform += ` translate(${x}px, ${y}px)`;
+}
+
+function kenBurnsEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const from = paramNumber(effect.params?.from, 1);
+  const to = paramNumber(effect.params?.to, 1.15);
+  const progress = Math.min(1, Math.max(0, context.tMs / Math.max(1, context.clip.durationMs)));
+  state.transform += ` scale(${from + (to - from) * progress})`;
+}
+
+function zoomEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const amount = paramNumber(effect.params?.amount, 0.12);
+  const progress = Math.min(1, Math.max(0, context.frame / Math.max(1, context.durationInFrames)));
+  const scale = effect.kind === 'zoom-in' ? 1 + amount * progress : 1 + amount * (1 - progress);
+  state.transform += ` scale(${scale})`;
+}
+
+function transitionProgress(effect: Effect, context: EffectTransformContext): number {
+  const durationMs = paramNumber(effect.params?.durationMs, 500);
+  if (durationMs <= 0) return 1;
+  if (paramString(effect.params?.dir, 'in') !== 'out') {
+    return Math.max(0, Math.min(1, context.tMs / durationMs));
   }
+  if (context.tMs <= context.clip.durationMs - durationMs) return 1;
+  return Math.max(0, Math.min(1, (context.clip.durationMs - context.tMs) / durationMs));
+}
 
-  return { opacity, filter, transform, clipPath, blendMode };
+function transitionEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const type = paramString(effect.params?.type, 'fade');
+  const progress = transitionProgress(effect, context);
+  switch (type) {
+    case 'fade':
+    case 'crossfade': state.opacity *= progress; break;
+    case 'wipe': state.clipPath = `inset(0 ${(1 - progress) * 100}% 0 0)`; break;
+    case 'slide-l': state.transform += ` translateX(${(progress - 1) * 100}%)`; break;
+    case 'slide-r': state.transform += ` translateX(${(1 - progress) * 100}%)`; break;
+    case 'slide-u': state.transform += ` translateY(${(1 - progress) * 100}%)`; break;
+    case 'slide-d': state.transform += ` translateY(${(progress - 1) * 100}%)`; break;
+    case 'zoom':
+      state.transform += ` scale(${0.6 + 0.4 * progress})`;
+      state.opacity *= progress;
+      break;
+  }
+}
+
+function filterEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  state.filter = appendCss(state.filter, lookFilter(paramString(effect.params?.preset, 'warm')));
+}
+
+function adjustEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  const brightness = Math.max(0, Math.min(3, paramNumber(effect.params?.brightness, 1)));
+  const contrast = Math.max(0, Math.min(3, paramNumber(effect.params?.contrast, 1)));
+  const saturation = Math.max(0, Math.min(3, paramNumber(effect.params?.saturation, 1)));
+  const temperature = Math.max(-100, Math.min(100, paramNumber(effect.params?.temperature, 0)));
+  state.filter = appendCss(state.filter, `brightness(${brightness}) contrast(${contrast}) saturate(${saturation})`);
+  if (temperature > 0) state.filter += ` sepia(${(temperature / 100) * 0.5})`;
+  if (temperature < 0) state.filter += ` hue-rotate(${(temperature / 100) * 18}deg)`;
+}
+
+function chromaticEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const filter = chromaticSplitFilter(context.frame, {
+    intensity: paramNumber(effect.params?.intensity, 4),
+    alpha: paramNumber(effect.params?.alpha, 0.6),
+    pulse: effect.params?.pulse === true || effect.params?.pulse === 'true',
+    axis: paramString(effect.params?.axis, 'x'),
+  });
+  state.filter = appendCss(state.filter, filter);
+}
+
+function speedRampEffect(effect: Effect, context: EffectTransformContext, state: EffectTransformState): void {
+  const ramp = speedRampStyle(context.frame, context.durationInFrames, {
+    at: paramNumber(effect.params?.at, 0.68),
+    frames: paramNumber(effect.params?.frames, 6),
+    intensity: paramNumber(effect.params?.intensity, 8),
+    blur: paramNumber(effect.params?.blur, 16),
+    zoom: paramNumber(effect.params?.zoom, 1.06),
+    direction: paramString(effect.params?.direction, 'left'),
+  });
+  state.transform += ramp.transform;
+  if (ramp.filter) state.filter = appendCss(state.filter, ramp.filter);
+}
+
+function opacityEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  state.opacity *= Math.max(0, Math.min(1, paramNumber(effect.params?.value, 1)));
+}
+
+function blendEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  state.blendMode = paramString(effect.params?.mode, 'normal');
+}
+
+function maskEffect(effect: Effect, _context: EffectTransformContext, state: EffectTransformState): void {
+  const nextPath = maskClipPath(
+    paramString(effect.params?.shape, 'circle'),
+    paramNumber(effect.params?.size, 70),
+    paramNumber(effect.params?.x, 50),
+    paramNumber(effect.params?.y, 50),
+  );
+  if (nextPath) state.clipPath = nextPath;
+}
+
+const EFFECT_TRANSFORM_HANDLERS: Partial<Record<Effect['kind'], EffectHandler>> = {
+  'fade-in': fadeInEffect,
+  'fade-out': fadeOutEffect,
+  blur: blurEffect,
+  glow: glowEffect,
+  shake: shakeEffect,
+  'ken-burns': kenBurnsEffect,
+  'zoom-in': zoomEffect,
+  'zoom-out': zoomEffect,
+  transition: transitionEffect,
+  filter: filterEffect,
+  adjust: adjustEffect,
+  'chromatic-split': chromaticEffect,
+  'speed-ramp': speedRampEffect,
+  opacity: opacityEffect,
+  blend: blendEffect,
+  mask: maskEffect,
+};
+
+function transformEffects(
+  clip: RenderClip,
+  frame: number,
+  fps: number,
+  durationInFrames: number,
+): EffectTransformState {
+  const state: EffectTransformState = {
+    opacity: 1,
+    filter: '',
+    transform: '',
+    clipPath: '',
+    blendMode: '',
+  };
+  const context = { clip, frame, durationInFrames, tMs: (frame / fps) * 1000 };
+  for (const effect of clip.effects ?? []) {
+    if ((effect as Effect & { disabled?: boolean }).disabled === true) continue;
+    EFFECT_TRANSFORM_HANDLERS[effect.kind]?.(effect, context, state);
+  }
+  return state;
 }
 
 // Per-clip visual overlays. `frame` is the clip-local frame so animated
@@ -636,7 +683,7 @@ function chunkLongCaption(
       current = next;
     }
   }
-  if (current) lines.push(current);
+  lines.push(current);
   return lines;
 }
 
@@ -692,48 +739,6 @@ function captionKeywordIndex(words: string[], isLastLine: boolean): number {
     return best;
   }
   return -1;
-}
-
-// ─── B-CAPSTYLE: restrained per-word karaoke (en option; ko stays phrase-accent) ──
-// A subtle left-to-right "spoken" highlight: upcoming words sit at a dim floor and
-// lift to full opacity as playback crosses each word's window; the current word
-// micro-bumps in scale and settles back. Deterministic (frame-based) → preview==render
-// and Modal-0. Word windows come from clip.wordTimings (ElevenLabs, free) when present,
-// else an even split across the clip — so it works on any caption. NEVER runs for the
-// phrase-accent locales (ko/zh), which keep today's look byte-identical.
-const KARAOKE_DIM_OPACITY = 0.74; // upcoming words recede but stay muted-readable (VISUAL_STRATEGY §1)
-const KARAOKE_PEAK_SCALE = 1.055; // restrained micro-bump on the word being spoken
-const KARAOKE_OPACITY_RAMP_FRAMES = 3; // short lift so the fill reads as motion, not a hard step
-function karaokeWordState(
-  globalIndex: number,
-  totalWords: number,
-  frame: number,
-  durationInFrames: number,
-  windowFrames: { startF: number; endF: number } | null,
-): { scale: number; opacity: number } {
-  let startF: number;
-  let endF: number;
-  if (windowFrames) {
-    startF = windowFrames.startF;
-    endF = windowFrames.endF;
-  } else {
-    const slot = durationInFrames / Math.max(totalWords, 1);
-    startF = globalIndex * slot;
-    endF = (globalIndex + 1) * slot;
-  }
-  // Guard degenerate/zero-length windows (e.g. startMs===endMs from upstream) so the
-  // interpolate input stays strictly monotonic and never throws.
-  const safeEnd = Math.max(endF, startF + 1);
-  const opacity = interpolate(frame, [startF - KARAOKE_OPACITY_RAMP_FRAMES, startF], [KARAOKE_DIM_OPACITY, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const mid = startF + (safeEnd - startF) * 0.4;
-  const scale = interpolate(frame, [startF, mid, safeEnd], [1, KARAOKE_PEAK_SCALE, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  return { scale, opacity };
 }
 
 // EDIT-2.2: per-type caption entrance animation (pop/fade-in/slide-in/bounce).
@@ -818,7 +823,6 @@ const CAPTION_TEMPLATES: Record<string, CaptionTemplate> = {
 };
 // 감정 자동 매핑 어휘 (deterministic). 텍스트 우선 → 없으면 sceneType.
 const CAPTION_EMO_RE = {
-  metric: /[0-9]\s*%|[0-9]\s*배|[0-9][0-9,]*\s*원|[0-9]+\s*(시간|분|초|회|일|주|개월|년)/,
   shock: /충격|대박|미쳐|미친|폭발|레전드|실화|소름|역대급|헐|경악|말도\s*안/,
   cta: /지금|딱|오늘|마감|한정|바로|서둘|놓치|클릭|링크|구매|주문|신청|담기/,
   proof: /인증|테스트|통과|안전|무자극|공인|규격|후기|리뷰|검증|OECD|특허|성분|임상/i,
@@ -828,6 +832,28 @@ const CAPTION_EMO_RE = {
   heartbeat: /설렘|두근|기대|떨려|처음|첫\s|반했|사랑/,
   question: /[?？]/,
 };
+const METRIC_SUFFIXES = ['개월', '시간', '%', '배', '원', '분', '초', '회', '일', '주', '년'];
+
+function isAsciiDigit(char: string | undefined): boolean {
+  return char !== undefined && char >= '0' && char <= '9';
+}
+
+function containsMetric(text: string): boolean {
+  let start = 0;
+  while (start < text.length) {
+    if (!isAsciiDigit(text[start])) {
+      start += 1;
+      continue;
+    }
+    let cursor = start + 1;
+    while (isAsciiDigit(text[cursor]) || text[cursor] === ',') cursor += 1;
+    while (text[cursor] !== undefined && /\s/u.test(text[cursor])) cursor += 1;
+    if (METRIC_SUFFIXES.some((suffix) => text.startsWith(suffix, cursor))) return true;
+    start = cursor;
+  }
+  return false;
+}
+
 function autoCaptionTemplate(sceneType: SceneType, text: string): string {
   const t = text || '';
   // 우선순위: 의도(충격→행동유도→증거) > 수치 > 질문 > 결(물/개운) > 톤(열정/설렘).
@@ -835,7 +861,7 @@ function autoCaptionTemplate(sceneType: SceneType, text: string): string {
   if (CAPTION_EMO_RE.shock.test(t)) return 'shock';
   if (CAPTION_EMO_RE.cta.test(t) || sceneType === 'cta') return 'cta';
   if (CAPTION_EMO_RE.proof.test(t) || sceneType === 'proof') return 'proof';
-  if (CAPTION_EMO_RE.metric.test(t)) return 'metric';
+  if (containsMetric(t)) return 'metric';
   if (CAPTION_EMO_RE.question.test(t)) return 'question';
   if (CAPTION_EMO_RE.water.test(t) || CAPTION_EMO_RE.fresh.test(t)) return 'fresh';
   if (CAPTION_EMO_RE.hype.test(t)) return 'hype';
@@ -848,7 +874,7 @@ function resolveCaptionTemplate(clip: RenderClip, sceneType: SceneType, text: st
   const attrs = (clip.attributes ?? {}) as Record<string, unknown>;
   const explicit = typeof attrs.caption_template === 'string' ? attrs.caption_template.trim() : '';
   const name = CAPTION_TEMPLATES[explicit] ? explicit : autoCaptionTemplate(sceneType, text);
-  return CAPTION_TEMPLATES[name] ?? CAPTION_TEMPLATES.plain;
+  return CAPTION_TEMPLATES[name];
 }
 // 키워드 액센트 모션 — 기존 키워드 transform 뒤에 append (본문 리빌 불변).
 function kwMotionTransform(motion: CaptionKwMotion, frame: number, lineStart: number): string {
@@ -961,6 +987,178 @@ function CaptionDecoLayer({ deco, color }: { deco: CaptionDeco; color: string })
   return null;
 }
 
+function captionBaseStyle(sceneType: SceneType): React.CSSProperties {
+  if (sceneType === 'hook') return hookCaptionText;
+  if (sceneType === 'proof') return proofCaptionText;
+  return captionText;
+}
+
+function captionDecoColor(template: CaptionTemplate, keywordColor: string | undefined): string {
+  const colors: Record<CaptionDeco, string> = {
+    none: 'transparent',
+    flame: '#ff8a1e',
+    drops: '#6fc7ff',
+    doubt: '#ffd23f',
+    beat: '#ff6b8a',
+    spark: keywordColor ?? '#ffe98a',
+    impact: keywordColor ?? '#ffffff',
+  };
+  return colors[template.deco];
+}
+
+function wordsIn(line: string): string[] {
+  return line.split(/\s+/).filter(Boolean);
+}
+
+function captionLineStartFrames(
+  lines: string[],
+  wordTimings: RenderClip['wordTimings'],
+  revealStep: number,
+  fps: number,
+): number[] {
+  const timings = Array.isArray(wordTimings) ? wordTimings : [];
+  let wordOffset = 0;
+  return lines.map((line, lineIndex) => {
+    const timing = timings[wordOffset] as { startMs?: number } | undefined;
+    const fallback = lineIndex * revealStep;
+    wordOffset += wordsIn(line).length;
+    if (!timing || !Number.isFinite(timing.startMs)) return fallback;
+    return Math.max(0, Math.round(((timing.startMs as number) / 1000) * fps));
+  });
+}
+
+function isMetricKeyword(word: string): boolean {
+  return /[0-9%]|원|만|천|억|배|위|등/.test(word);
+}
+
+interface CaptionWordProps {
+  word: string;
+  index: number;
+  totalWords: number;
+  keywordIndex: number;
+  markerGrow: number;
+  frame: number;
+  lineStart: number;
+  emotional: boolean;
+  keywordColor: string | undefined;
+  template: CaptionTemplate;
+  baseTextStyle: React.CSSProperties;
+  secondaryBlurPx: number;
+}
+
+function CaptionWord({
+  word,
+  index,
+  totalWords,
+  keywordIndex,
+  markerGrow,
+  frame,
+  lineStart,
+  emotional,
+  keywordColor,
+  template,
+  baseTextStyle,
+  secondaryBlurPx,
+}: CaptionWordProps) {
+  const isKey = index === keywordIndex;
+  const color = isKey && isMetricKeyword(word) ? CAPTION_PALETTE_HEX.metric : keywordColor;
+  const scale = isKey
+    ? interpolate(markerGrow, [0, 1], [1, 1.08], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+    : 1;
+  const shakeX = isKey && emotional ? Math.sin((frame - lineStart) * 1.7) * 2.4 : 0;
+  const motion = isKey ? kwMotionTransform(template.kwMotion, frame, lineStart) : '';
+  const transform = isKey ? `translateX(${shakeX}px) scale(${scale}) ${motion}`.trim() : undefined;
+  const textShadow = isKey && color
+    ? `0 0 14px ${color}55, ${String(baseTextStyle.textShadow ?? '')}`
+    : undefined;
+  const filter = !isKey && secondaryBlurPx > 0 ? `blur(${secondaryBlurPx}px)` : undefined;
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', whiteSpace: 'pre' }}>
+      <span
+        style={{
+          color: isKey ? color : undefined,
+          display: 'inline-block',
+          transform,
+          transformOrigin: 'center bottom',
+          textShadow,
+          filter,
+          willChange: isKey ? 'transform' : undefined,
+        }}
+      >
+        {word}
+      </span>
+      {index < totalWords - 1 ? ' ' : ''}
+    </span>
+  );
+}
+
+interface CaptionLineProps {
+  line: string;
+  index: number;
+  totalLines: number;
+  lineStart: number;
+  captionFrame: number;
+  frame: number;
+  emotional: boolean;
+  keywordColor: string | undefined;
+  template: CaptionTemplate;
+  baseTextStyle: React.CSSProperties;
+  secondaryBlurPx: number;
+}
+
+function CaptionLine({
+  line,
+  index,
+  totalLines,
+  lineStart,
+  captionFrame,
+  frame,
+  emotional,
+  keywordColor,
+  template,
+  baseTextStyle,
+  secondaryBlurPx,
+}: CaptionLineProps) {
+  const elapsed = captionFrame - lineStart;
+  const opacity = interpolate(elapsed, [0, 5], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const scale = interpolate(elapsed, [0, 6, 12], [0.8, 1.05, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const y = interpolate(elapsed, [0, 8], [22, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const words = wordsIn(line);
+  const keywordIndex = captionKeywordIndex(words, index === totalLines - 1);
+  const markerGrow = interpolate(elapsed, [4, 13], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+
+  return (
+    <span
+      style={{
+        display: 'block',
+        opacity,
+        transform: `translateY(${y}px) scale(${scale})`,
+        transformOrigin: 'center bottom',
+        whiteSpace: undefined,
+      }}
+    >
+      {words.map((word, wordIndex) => (
+        <CaptionWord
+          key={`${index}-${wordIndex}`}
+          word={word}
+          index={wordIndex}
+          totalWords={words.length}
+          keywordIndex={keywordIndex}
+          markerGrow={markerGrow}
+          frame={frame}
+          lineStart={lineStart}
+          emotional={emotional}
+          keywordColor={keywordColor}
+          template={template}
+          baseTextStyle={baseTextStyle}
+          secondaryBlurPx={secondaryBlurPx}
+        />
+      ))}
+    </span>
+  );
+}
+
 function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip; transformStyle: React.CSSProperties; sceneType: SceneType }) {
   const { fps } = useVideoConfig();
   const frame = useCurrentFrame();
@@ -975,15 +1173,12 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   // black outline (NOT a box); metrics/money go green; emotional words get a micro-shake.
   const captionTextRaw = typeof clip.textContent === 'string' ? clip.textContent : '';
   const isEmotional = /[!?！？]|충격|대박|미쳐|미친|폭발|진짜|레전드|실화|소름|역대급|망했|실패/.test(captionTextRaw);
-  const baseTextStyle = sceneType === 'hook' ? hookCaptionText : sceneType === 'proof' ? proofCaptionText : captionText;
+  const baseTextStyle = captionBaseStyle(sceneType);
   // CAPTION TEMPLATE (founder 2026-07-12 "전부 구현 + 시의적절 템플릿화"): 씬 감정 → 자막
   // 템플릿(데코·색·키워드모션·진입)을 자동 선택. clip.attributes.caption_template 명시 시 우선.
   const captionTemplate = resolveCaptionTemplate(clip, sceneType, captionTextRaw);
   const kwPaletteHex = CAPTION_PALETTE_HEX[captionTemplate.palette];
-  const decoColor = ({
-    none: 'transparent', flame: '#ff8a1e', drops: '#6fc7ff', doubt: '#ffd23f',
-    beat: '#ff6b8a', spark: kwPaletteHex ?? '#ffe98a', impact: kwPaletteHex ?? '#ffffff',
-  } as Record<CaptionDeco, string>)[captionTemplate.deco];
+  const decoColor = captionDecoColor(captionTemplate, kwPaletteHex);
   const captionStyleEffect = effectByKind(clip, 'caption-style');
   const stickerEffect = effectByKinds(clip, ['caption-border-sticker', 'caption-flame', 'sticker']);
   const glowEffect = effectByKinds(clip, ['glow', 'caption-glow']);
@@ -1012,7 +1207,7 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   const typeConfig = CAPTION_DEFAULTS[captionType] ?? CAPTION_DEFAULTS['speaker-dialogue'];
   // 진입 우선순위: 명시 attr → 자막 템플릿 → caption_type 기본. (진입은 caption_type 있을 때만 발화 —
   // 레거시 클립은 entranceDurationFrames=0 이라 byte-identical.)
-  const entranceEffect = (captionAttrs.caption_entrance_effect as string | undefined) ?? captionTemplate.entrance ?? typeConfig.entranceEffect;
+  const entranceEffect = (captionAttrs.caption_entrance_effect as string | undefined) ?? captionTemplate.entrance;
   const entranceDurationMs = typeConfig.entranceDurationMs;
   // EDIT-2.3: lag — caption appears lagMs after clip startMs.
   const lagMs = hasCaptionType
@@ -1060,23 +1255,7 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
   // REC-0047 개정 (2026-07-10 founder): 카라오케 '제한 해제' — 단 줄(line) 단위만.
   // 각 줄은 자기 첫 단어의 발화 시점(wordTimings)에 나타난다. 단어 단위 리빌은 계속 금지.
   // wordTimings 없는 레거시 클립은 기존 고정 간격(revealStep) 그대로 — byte-identical.
-  const _wt = Array.isArray(clip.wordTimings) ? clip.wordTimings : [];
-  const _lineWordCountsPre = lines.map((l) => l.split(/\s+/).filter(Boolean).length);
-  const lineStartFrames = lines.map((_, li) => {
-    const off = _lineWordCountsPre.slice(0, li).reduce((sum, n) => sum + n, 0);
-    const w = _wt[off] as { startMs?: number } | undefined;
-    return w && Number.isFinite(w.startMs)
-      ? Math.max(0, Math.round(((w.startMs as number) / 1000) * fps))
-      : li * revealStep;
-  });
-  // REC-0047 (founder 2026-06-18 "실패, 이상함"): per-word karaoke = 절대 구현금지. Both the
-  // en 'subtle-karaoke' option and the per-clip caption_karaoke opt-in are DROPPED. Only the
-  // ko phrase-level keyword emphasis (Market-grade caption emphasis above) survives. Hard off.
-  const isKaraoke = false;
-  const karaokeWordTimings = isKaraoke && Array.isArray(clip.wordTimings) ? clip.wordTimings : [];
-  // Global word index per line so karaoke timing spans the whole caption, not each line.
-  const lineWordCounts = lines.map((l) => l.split(/\s+/).filter(Boolean).length);
-  const totalCaptionWords = lineWordCounts.reduce((sum, n) => sum + n, 0);
+  const lineStartFrames = captionLineStartFrames(lines, clip.wordTimings, revealStep, fps);
 
   // EDIT-2.3: lag window — caption is invisible until lagFrames have elapsed.
   // Skipped (lagFrames=0) for legacy clips and speaker-dialogue → byte-identical.
@@ -1122,92 +1301,22 @@ function DynamicCaption({ clip, transformStyle, sceneType }: { clip: RenderClip;
         ) : null}
         {/* 감정 데코 (불꽃·반짝·임팩트·물방울·의심·두근) — 텍스트 뒤에서 frame 구동 */}
         {captionTemplate.deco !== 'none' ? <CaptionDecoLayer deco={captionTemplate.deco} color={decoColor} /> : null}
-        {lines.map((line, i) => {
-          const isLast = i === lines.length - 1;
-          const lineStart = lineStartFrames[i]; // 발화 동기 (레거시=고정 간격 폴백)
-          const t = captionFrame - lineStart; // EDIT-2.3: use captionFrame so reveal starts after lag
-          const lineOpacity = interpolate(t, [0, 5], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          // snappy punch-in with overshoot (deliberate 2026 pacing, not a soft fade)
-          const lineScale = interpolate(t, [0, 6, 12], [0.8, 1.05, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          const lineY = interpolate(t, [0, 8], [22, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          const words = line.split(/\s+/).filter(Boolean);
-          const kw = captionKeywordIndex(words, isLast);
-          const markerGrow = interpolate(t, [4, 13], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          // Words in earlier lines, so the karaoke fill is continuous across the caption.
-          const lineWordOffset = lineWordCounts.slice(0, i).reduce((sum, n) => sum + n, 0);
-          return (
-            <span
-              key={i}
-              style={{
-                display: 'block',
-                opacity: lineOpacity,
-                transform: `translateY(${lineY}px) scale(${lineScale})`,
-                transformOrigin: 'center bottom',
-                // LOOP_UIUX TRACK B: proof line wraps (no nowrap clip) like the rest.
-                whiteSpace: undefined,
-              }}
-            >
-              {words.map((word, wi) => {
-                const isKey = wi === kw;
-                // Power-word = COLORED word over the outline (no box). Metrics/money → green
-                // (#2fcf6b), everything else → the brand point color. It pops to 1.08 as it
-                // lands; emotional captions add a 2-3px micro-shake (kinetic, speech-synced feel).
-                const kwIsMetric = isKey && /[0-9%]|원|만|천|억|배|위|등/.test(word);
-                // 키워드 색 = 자막 템플릿 팔레트(시맨틱). metric 숫자는 항상 초록. plain 템플릿=undefined
-                // (흰색). blanket 주황 강조는 계속 오프(founder "너무 그런것 같아") — 색은 감정별로만.
-                const kwColor = isKey ? (kwIsMetric ? CAPTION_PALETTE_HEX.metric : kwPaletteHex) : undefined;
-                const kwScale = isKey
-                  ? interpolate(markerGrow, [0, 1], [1, 1.08], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-                  : 1;
-                const shakeX = isKey && isEmotional ? Math.sin((frame - lineStart) * 1.7) * 2.4 : 0;
-                // 키워드 액센트 모션 (glitch/spin/count/wave/pulse) — 기존 transform 뒤에 append.
-                const kwMx = isKey ? kwMotionTransform(captionTemplate.kwMotion, frame, lineStart) : '';
-                // B-CAPSTYLE karaoke (en only): null for ko/zh → every term below collapses
-                // to the legacy value, so the phrase-accent render stays byte-identical.
-                const globalWi = lineWordOffset + wi;
-                const karaokeTiming = isKaraoke && karaokeWordTimings[globalWi]
-                  ? {
-                      startF: msToDurationFrames(karaokeWordTimings[globalWi].startMs, fps),
-                      endF: msToDurationFrames(karaokeWordTimings[globalWi].endMs, fps),
-                    }
-                  : null;
-                const karaoke = isKaraoke
-                  ? karaokeWordState(globalWi, totalCaptionWords, frame, durationInFrames, karaokeTiming)
-                  : null;
-                return (
-                  <span key={wi} style={{ position: 'relative', display: 'inline-block', whiteSpace: 'pre' }}>
-                    <span
-                      style={{
-                        color: isKey ? kwColor : undefined,
-                        display: 'inline-block',
-                        // Karaoke scale MULTIPLIES the key-word pop (kwScale*1 === kwScale, so
-                        // ko keeps the exact same string); non-key words pick up the karaoke
-                        // micro-bump only when karaoke is active, else stay transform-less.
-                        transform: isKey
-                          ? `translateX(${shakeX}px) scale(${kwScale * (karaoke ? karaoke.scale : 1)}) ${kwMx}`.trim()
-                          : karaoke
-                            ? `scale(${karaoke.scale})`
-                            : undefined,
-                        transformOrigin: 'center bottom',
-                        // Karaoke fill: dim upcoming words, hold spoken/current at full.
-                        opacity: karaoke ? karaoke.opacity : undefined,
-                        textShadow: isKey && kwColor
-                          ? `0 0 14px ${kwColor}55, ${String(baseTextStyle.textShadow ?? '')}`
-                          : undefined,
-                        // 흐릿한 글자=블러: 부수(non-key) words recede; key word stays sharp.
-                        filter: !isKey && secondaryBlurPx > 0 ? `blur(${secondaryBlurPx}px)` : undefined,
-                        willChange: isKey || karaoke ? 'transform' : undefined,
-                      }}
-                    >
-                      {word}
-                    </span>
-                    {wi < words.length - 1 ? ' ' : ''}
-                  </span>
-                );
-              })}
-            </span>
-          );
-        })}
+        {lines.map((line, index) => (
+          <CaptionLine
+            key={index}
+            line={line}
+            index={index}
+            totalLines={lines.length}
+            lineStart={lineStartFrames[index]}
+            captionFrame={captionFrame}
+            frame={frame}
+            emotional={isEmotional}
+            keywordColor={kwPaletteHex}
+            template={captionTemplate}
+            baseTextStyle={baseTextStyle}
+            secondaryBlurPx={secondaryBlurPx}
+          />
+        ))}
       </div>
     </AbsoluteFill>
   );
@@ -1333,7 +1442,7 @@ function Watermark({ clip, containerStyle }: { clip: RenderClip; containerStyle:
   const mode = paramString(effect.params?.mode, 'repeated');
   const text = paramString(effect.params?.text, clip.textContent ?? 'HI-OB');
   const url = paramString(effect.params?.url, '');
-  const opacity = (paramNumber(containerStyle.opacity, 1) ?? 1) * paramNumber(effect.params?.opacity, 0.16);
+  const opacity = paramNumber(containerStyle.opacity, 1) * paramNumber(effect.params?.opacity, 0.16);
 
   // Logo image or single text mark anchored to a 9-grid position.
   if (mode === 'single' || url) {
@@ -1399,357 +1508,436 @@ function buildMusicVolumeFn(baseVolume: number, duckDepth: number, fps: number, 
   };
 }
 
-function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: RenderClip; mix?: RenderProps['mix']; proofCutawayWindows: SceneWindow[]; voiceWindows: VoiceWindow[] }) {
+interface ClipRuntime {
+  fps: number;
+  frame: number;
+  localeConfig: LocaleConfig;
+  sceneType: SceneType;
+  sceneLayer: SceneLayer;
+  opacity: number;
+  scale: number;
+  x: number;
+  y: number;
+  rotation: number;
+  durationInFrames: number;
+  speed: number;
+  transformStyle: React.CSSProperties;
+  effects: EffectTransformState;
+  isAudioAsset: boolean;
+  isVisualAsset: boolean;
+}
+
+function clipIsVisual(clip: RenderClip, isAudioAsset: boolean): boolean {
+  if (clip.assetKind === 'image' || clip.assetKind === 'video') return true;
+  const visualTrack = clip.trackKind === 'video' || clip.trackKind === 'overlay';
+  return visualTrack && Boolean(clip.url) && !isAudioAsset;
+}
+
+function applyEffectStyle(style: React.CSSProperties, effects: EffectTransformState): void {
+  if (effects.filter) appendFilter(style, effects.filter);
+  if (effects.clipPath) style.clipPath = effects.clipPath;
+  if (effects.blendMode && effects.blendMode !== 'normal') {
+    style.mixBlendMode = effects.blendMode as React.CSSProperties['mixBlendMode'];
+  }
+}
+
+function useClipRuntime(clip: RenderClip): ClipRuntime {
   const { fps } = useVideoConfig();
   const frame = useCurrentFrame();
   const localeConfig = useContext(LocaleConfigContext);
-  const scene_type = resolveSceneType(clip);
-  const sceneLayer = resolveSceneLayer(clip, scene_type);
-  const sceneTemplate = SCENE_TEMPLATES[scene_type];
-  const globalMs = clip.startMs + (frame / fps) * 1000;
-  // 좁쌀 제거(founder 2026-07-01): proof cutaway 비활성 — 사회증거가 나와도 hero를 인셋으로
-  // 축소하거나 narrator를 숨기지 않는다. proof는 Artemis overlay의 몫.
-  const inProofCutaway = false;
-  const t = clip.transforms ?? { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
-
-  const opacity = applyKf(clip, 'opacity', t.opacity, frame, fps);
-  const scale = applyKf(clip, 'scale', t.scale, frame, fps);
-  const x = applyKf(clip, 'x', t.x, frame, fps);
-  const y = applyKf(clip, 'y', t.y, frame, fps);
-  const rotation = applyKf(clip, 'rotation', t.rotation, frame, fps);
-
+  const sceneType = resolveSceneType(clip);
+  const sceneLayer = resolveSceneLayer(clip, sceneType);
+  const initial = clip.transforms ?? { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
+  const opacity = applyKf(clip, 'opacity', initial.opacity, frame, fps);
+  const scale = applyKf(clip, 'scale', initial.scale, frame, fps);
+  const x = applyKf(clip, 'x', initial.x, frame, fps);
+  const y = applyKf(clip, 'y', initial.y, frame, fps);
+  const rotation = applyKf(clip, 'rotation', initial.rotation, frame, fps);
   const durationInFrames = msToDurationFrames(clip.durationMs, fps);
-  // E6 per-clip speed (playbackRate): the source plays faster/slower within the
-  // clip's timeline window. Default 1 ⇒ no change (so clips without speed render
-  // byte-identically — preview == render preserved).
-  const speed = Math.max(0.25, Math.min(4, Number((clip.attributes as Record<string, unknown> | undefined)?.speed) || 1));
-  const transformBase = `translate(${x * 50}%, ${y * 50}%) scale(${scale}) rotate(${rotation}deg)`;
-  const transformStyle: React.CSSProperties = { transform: transformBase, opacity, width: '100%', height: '100%' };
+  const speed = Math.max(0.25, Math.min(4, Number(clipAttributes(clip).speed) || 1));
+  const transformStyle: React.CSSProperties = {
+    transform: `translate(${x * 50}%, ${y * 50}%) scale(${scale}) rotate(${rotation}deg)`,
+    opacity,
+    width: '100%',
+    height: '100%',
+  };
   const effects = transformEffects(clip, frame, fps, durationInFrames);
-  transformStyle.opacity = (transformStyle.opacity ?? 1) * effects.opacity;
-  transformStyle.transform = `${transformStyle.transform ?? ''}${effects.transform}`;
-  if (effects.filter) appendFilter(transformStyle, effects.filter);
-  if (effects.clipPath) transformStyle.clipPath = effects.clipPath;
-  // CapCut blend mode — composite this clip over the layer beneath (normal ⇒ untouched).
-  if (effects.blendMode && effects.blendMode !== 'normal') {
-    transformStyle.mixBlendMode = effects.blendMode as React.CSSProperties['mixBlendMode'];
-  }
-
+  transformStyle.opacity = opacity * effects.opacity;
+  transformStyle.transform = `${transformStyle.transform}${effects.transform}`;
+  applyEffectStyle(transformStyle, effects);
   const isAudioAsset = clip.assetKind === 'audio';
-  // CDN stills often lack mime/extension (Seedream signed URLs) — trackKind video+url
-  // is still a visual. Without this, isVisualAsset=false → 좁쌀 hard-ban never fires.
-  const isVisualAsset =
-    clip.assetKind === 'image' ||
-    clip.assetKind === 'video' ||
-    ((clip.trackKind === 'video' || clip.trackKind === 'overlay') && !!clip.url && !isAudioAsset);
 
-  if (isAudioAsset || clip.trackKind === 'audio' || clip.trackKind === 'music' || clip.trackKind === 'sfx') {
-    if (!clip.url) return null;
-    const isMusicClip = clip.trackKind === 'music' || (isAudioAsset && clip.trackKind !== 'audio' && clip.trackKind !== 'sfx');
-    const autoDuck = mix?.autoDuck && isMusicClip && voiceWindows.length > 0;
-    const volumeProp = autoDuck
-      ? buildMusicVolumeFn(mix?.music ?? 0.15, mix?.duck ?? 0.7, fps, voiceWindows)
-      : resolveAudioVolume(clip, mix);
-    return (
-      <Audio
-        src={clip.url}
-        volume={volumeProp}
-        startFrom={msToStartFrame(clip.inMs ?? 0, fps)}
-        endAt={clip.outMs != null ? msToDurationFrames(clip.outMs, fps) : undefined}
-        playbackRate={speed}
-      />
-    );
+  return {
+    fps,
+    frame,
+    localeConfig,
+    sceneType,
+    sceneLayer,
+    opacity,
+    scale,
+    x,
+    y,
+    rotation,
+    durationInFrames,
+    speed,
+    transformStyle,
+    effects,
+    isAudioAsset,
+    isVisualAsset: clipIsVisual(clip, isAudioAsset),
+  };
+}
+
+function clipIsAudio(clip: RenderClip, runtime: ClipRuntime): boolean {
+  return runtime.isAudioAsset
+    || clip.trackKind === 'audio'
+    || clip.trackKind === 'music'
+    || clip.trackKind === 'sfx';
+}
+
+function AudioClipRenderer({
+  clip,
+  mix,
+  voiceWindows,
+  runtime,
+}: {
+  clip: RenderClip;
+  mix?: RenderProps['mix'];
+  voiceWindows: VoiceWindow[];
+  runtime: ClipRuntime;
+}) {
+  if (!clip.url) return null;
+  const isMusicClip = clip.trackKind === 'music'
+    || (runtime.isAudioAsset && clip.trackKind !== 'audio' && clip.trackKind !== 'sfx');
+  const autoDuck = Boolean(mix?.autoDuck && isMusicClip && voiceWindows.length > 0);
+  const volume = autoDuck
+    ? buildMusicVolumeFn(mix?.music ?? 0.15, mix?.duck ?? 0.7, runtime.fps, voiceWindows)
+    : resolveAudioVolume(clip, mix);
+  return (
+    <Audio
+      src={clip.url}
+      volume={volume}
+      startFrom={msToStartFrame(clip.inMs ?? 0, runtime.fps)}
+      endAt={clip.outMs != null ? msToDurationFrames(clip.outMs, runtime.fps) : undefined}
+      playbackRate={runtime.speed}
+    />
+  );
+}
+
+function TitleClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+  if (effectByKind(clip, 'watermark')) {
+    return <Watermark clip={clip} containerStyle={runtime.transformStyle} />;
   }
+  return (
+    <AbsoluteFill style={{ ...titleContainer, ...runtime.transformStyle }}>
+      <span style={{ ...titleText, fontFamily: captionFontFor(runtime.localeConfig) }}>{clip.textContent ?? ''}</span>
+    </AbsoluteFill>
+  );
+}
 
-  if (clip.trackKind === 'title' && !isVisualAsset) {
-    if (inProofCutaway) return null;
-    const watermark = effectByKind(clip, 'watermark');
-    if (watermark) return <Watermark clip={clip} containerStyle={transformStyle} />;
-    return (
-      <AbsoluteFill style={{ ...titleContainer, ...transformStyle }}>
-        <span style={{ ...titleText, fontFamily: captionFontFor(localeConfig) }}>{clip.textContent ?? ''}</span>
-      </AbsoluteFill>
-    );
+function CaptionClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+  if (effectByKind(clip, 'watermark')) {
+    return <Watermark clip={clip} containerStyle={runtime.transformStyle} />;
   }
+  return <DynamicCaption clip={clip} transformStyle={runtime.transformStyle} sceneType={runtime.sceneType} />;
+}
 
-  if ((clip.trackKind === 'caption' || clip.trackKind === 'overlay') && !isVisualAsset) {
-    const watermark = effectByKind(clip, 'watermark');
-    if (watermark) return <Watermark clip={clip} containerStyle={transformStyle} />;
-    return <DynamicCaption clip={clip} transformStyle={transformStyle} sceneType={inProofCutaway ? 'proof' : scene_type} />;
+function ClipRenderer({ clip, mix, voiceWindows }: { clip: RenderClip; mix?: RenderProps['mix']; voiceWindows: VoiceWindow[] }) {
+  const runtime = useClipRuntime(clip);
+  if (clipIsAudio(clip, runtime)) {
+    return <AudioClipRenderer clip={clip} mix={mix} voiceWindows={voiceWindows} runtime={runtime} />;
   }
+  if (clip.trackKind === 'title' && !runtime.isVisualAsset) {
+    return <TitleClipRenderer clip={clip} runtime={runtime} />;
+  }
+  if ((clip.trackKind === 'caption' || clip.trackKind === 'overlay') && !runtime.isVisualAsset) {
+    return <CaptionClipRenderer clip={clip} runtime={runtime} />;
+  }
+  return <VisualClipRenderer clip={clip} runtime={runtime} />;
+}
 
-  const isVideo = clip.assetKind === 'video' || (clip.url && /\.(mp4|webm|mov)(\?|$)/i.test(clip.url));
-  // EDIT-PACING: sub-beat image variety — advance to a different image every SUBBEAT_MAX_MS.
-  // sub_images[0] == primary image URL; sub_images[1..N] are manga-shot variants generated
-  // in visual.py for long beats.  Renderer-side: frame is clip-local (0=clip start), so
-  // tMs counts milliseconds from the START of this clip, not the timeline.
-  const tMs = (frame / fps) * 1000;
-  const rawSubImages = clipAttributes(clip).sub_images;
-  const subImages: string[] = Array.isArray(rawSubImages)
-    ? (rawSubImages as unknown[]).filter((u): u is string => typeof u === 'string' && u.length > 0)
+interface SubImageState {
+  urls: string[];
+  activeIndex: number;
+  hasMultiple: boolean;
+  flashOpacity: number;
+  localFrame: number;
+  durationInFrames: number;
+}
+
+function clipIsVideo(clip: RenderClip): boolean {
+  if (clip.assetKind === 'video') return true;
+  return Boolean(clip.url && /\.(mp4|webm|mov)(\?|$)/i.test(clip.url));
+}
+
+function resolveSubImageState(clip: RenderClip, isVideo: boolean, frame: number, fps: number): SubImageState {
+  const raw = clipAttributes(clip).sub_images;
+  const urls = Array.isArray(raw)
+    ? (raw as unknown[]).filter((value): value is string => typeof value === 'string' && value.length > 0)
     : [];
-  const hasSubImages = subImages.length > 1 && !isVideo && clip.assetKind === 'image';
-  const activeSubIdx = hasSubImages
-    ? Math.min(Math.floor(tMs / SUBBEAT_MAX_MS), subImages.length - 1)
+  const hasMultiple = urls.length > 1 && !isVideo && clip.assetKind === 'image';
+  const elapsedMs = (frame / fps) * 1000;
+  const activeIndex = hasMultiple
+    ? Math.min(Math.floor(elapsedMs / SUBBEAT_MAX_MS), urls.length - 1)
     : 0;
-  const msIntoActiveSub = hasSubImages ? tMs - activeSubIdx * SUBBEAT_MAX_MS : tMs;
-  const FLASH_MS = Math.max(1, (2 / fps) * 1000); // 2-frame flash opacity dip on cut
-  const subBeatFlash = (hasSubImages && activeSubIdx > 0 && msIntoActiveSub < FLASH_MS)
-    ? Math.max(0, msIntoActiveSub / FLASH_MS)
-    : 1;
-  // 좁쌀 제거(founder 2026-07-01): proof-frame 인셋 비활성 — 사회증거가 hero 이미지를 작은
-  // 카드로 축소하지 않는다. 사회증거는 Artemis(에디터)가 full-bleed 위에 overlay로 얹는다.
-  const proofFrame = false;
-  const isProofHero = false;
-  const isNarratorVisual = sceneLayer === 'narrator' && (isVisualAsset || clip.trackKind === 'video' || clip.trackKind === 'overlay');
-  // LOOP_COMPOSE PROOF-CUTAWAY branch: hide the narrator ONLY while a proof HERO
-  // asset is actually on-screen (inProofCutaway) — NOT for the whole proof scene.
-  // Else a proof-tagged beat whose hero card sits elsewhere on the timeline (or is
-  // missing) renders BLACK even though it has a perfectly good persona image
-  // (founder bug 2026-06-04: bright lab-coat frame showed as a black screen).
-  if (inProofCutaway && isNarratorVisual && !isProofHero) {
-    return null;
-  }
-  // Manual framing wins over ambience: once the human sets an explicit scale or a
-  // fit mode, the automatic ken-burns drift would fight their exact framing — turn
-  // it off for that clip. Untouched clips (scale 1, no fit) keep the drift as before.
-  const fitAttr = String(clipAttributes(clip).fit ?? '').toLowerCase();
-  const hasManualFraming = scale !== 1 || fitAttr === 'contain' || fitAttr === 'cover' || x !== 0 || y !== 0;
-  // Use beat position to vary ken-burns direction for consecutive narrator beats.
-  // When narrator reuses the same image artifact across 3+ beats, clip.id is
-  // identical → kenBurnsTransform returns the same direction every time.
-  // narrator_beat_index (stamped by composer_v2.py) makes the key unique per beat.
-  // Legacy fallback: absent field (-1) → original clip.id behavior, byte-identical.
-  const narratorBeatIndex = Number(clipAttributes(clip).narrator_beat_index ?? -1);
-  const motionClipId = hasSubImages && activeSubIdx > 0
-    ? `${clip.id}_beat_${narratorBeatIndex}_sub_${activeSubIdx}`
-    : narratorBeatIndex >= 0
-      ? `${clip.id}_beat_${narratorBeatIndex}`
-      : clip.id;
-  // B-SHOT3: a B-SHOT2 sub-shot (transforms.scale != 1, stamped subshot_count>1) is a
-  // STATIC reframe that would otherwise freeze (hasManualFraming). Give it a gentle
-  // additive breath instead — keyed by sub-shot index so each crop drifts differently.
-  // Genuine HUMAN manual framing (no subshot_count) still freezes, as the human intended.
-  const subshotCount = Number(clipAttributes(clip).subshot_count ?? 0);
-  const isSubshot = subshotCount > 1;
-  // U-M1-EDIT-PACING: re-key Ken-Burns so each sub-image window starts from
-  // frame 0 of its own 800ms window instead of the clip's global frame count.
-  // Without this, all sub-images share the same mid-range progress value and
-  // the "pan direction" doesn't reset — looping rather than cutting.
-  const subDurationInFrames = Math.max(1, Math.round((SUBBEAT_MAX_MS * fps) / 1000));
-  const frameIntoActiveSub = hasSubImages
-    ? Math.max(0, frame - activeSubIdx * subDurationInFrames)
-    : frame;
+  const elapsedInActive = hasMultiple ? elapsedMs - activeIndex * SUBBEAT_MAX_MS : elapsedMs;
+  const flashMs = Math.max(1, (2 / fps) * 1000);
+  const isFlashing = hasMultiple && activeIndex > 0 && elapsedInActive < flashMs;
+  const durationInFrames = Math.max(1, Math.round((SUBBEAT_MAX_MS * fps) / 1000));
+  return {
+    urls,
+    activeIndex,
+    hasMultiple,
+    flashOpacity: isFlashing ? Math.max(0, elapsedInActive / flashMs) : 1,
+    localFrame: hasMultiple ? Math.max(0, frame - activeIndex * durationInFrames) : frame,
+    durationInFrames,
+  };
+}
 
-  // 2026-07-10 founder "비트마다 기계식 줌 1회": 모션 계획(keyframes)이 있으면 블랭킷
-  // 켄번스를 끈다 — keyframes가 모션의 단일 권위, 켄번스는 계획 없는 레거시 클립 폴백으로 강등.
-  const hasMotionKf = (clip.keyframes ?? []).some((k) => k.property === 'scale' || k.property === 'x' || k.property === 'y');
-  const kb = isVideo || proofFrame || hasMotionKf || effectByKind(clip, 'ken-burns')
-    ? { scale: 1, x: 0, y: 0 }
-    : isSubshot
-      ? subshotKenBurns(frame, durationInFrames, `${motionClipId}_ss_${Number(clipAttributes(clip).subshot_index ?? 0)}`)
-      : hasManualFraming
-        ? { scale: 1, x: 0, y: 0 }
-        : hasSubImages
-          ? kenBurnsTransform(frameIntoActiveSub, subDurationInFrames, motionClipId)
-          : kenBurnsTransform(frame, durationInFrames, motionClipId);
-  // BLACK-BEAT FIX (2026-06-17 ViewOK antifog): a social_proof beat's proof image is the
-  // CENTERPIECE and must fill the frame. It is tagged scene_layer='narrator' (so the
-  // SCENE_TEMPLATES['product'] pip-right rule would shrink it to a tiny bottom-right card)
-  // but it is the ONLY visual on the beat — leaving the hero='full' slot empty, so the
-  // frame rendered ~70% FALLBACK_BG black with a small product card floating in it. Render
-  // the proof visual full-frame instead of a pip. Scoped to social_proof/proof visuals only
-  // — every other product beat keeps its narrator pip, so non-proof reels stay byte-stable.
-  // 2026-07-12 (founder "통째로 회귀·배선 잘못됐다"): scene-grammar-v2 의 인물 없는 제품/장면
-  // 비주얼(product_solo·hands_demo·before_after·scene_no_person·situation_pov)은 그 비트의
-  // HERO다 — 제품이 화면의 주인공이어야 한다. 이것들도 scene_layer='narrator'로 태그되므로
-  // SCENE_TEMPLATES['product'].narrator='pip-right' 규칙에 걸려 tiny 우하단 카드로 축소됐다
-  // (실사고: viewok 제품 컷이 검은 프레임에 좁쌀만한 제품). proof 비주얼과 동일하게 pip을
-  // 우회해 풀블리드로 렌더한다. 발화 인물(persona/kol_narrator)만 narrator pip을 유지.
-  const _clipRenderMode = String(clipAttributes(clip).render_mode ?? '').toLowerCase();
-  const _clipProvider = String(
-    clipAttributes(clip).provider ?? clipAttributes(clip).provider_model ?? '',
-  ).toLowerCase();
-  const isFullBleedSceneVisual = [
-    'social_proof', 'product_solo', 'hands_demo', 'before_after', 'scene_no_person', 'situation_pov',
-  ].includes(_clipRenderMode);
-  const isProofVisual =
-    isFullBleedSceneVisual ||
-    String(clipAttributes(clip).scene_type ?? '').toLowerCase() === 'proof';
-  // Rule 3·4 (founder 2026-07-12 "좁쌀 프레임은 짜쳐·절대 사용 안 한다"): SCENE_TEMPLATES의
-  // 자동 narrator pip(250×360 검은 프레임 좁쌀)을 **전면 금지**. 모든 비주얼은 풀블리드로 렌더한다
-  // — 자산이 화면 한 구석에 좁쌀만하게 뜨는 컷은 원천 차단(제품 회귀 재발 방지). isProofVisual/
-  // pipBottom*는 하위호환 참조용으로 남기되 pip은 더 이상 만들지 않는다.
-  void isProofVisual; void pipBottomLeft; void pipBottomRight;
-  const pipStyle: React.CSSProperties | null = null;
-  // ── 좁쌀 HARD BAN (founder 2026-07-20 EyeSafe) ────────────────────────────
-  // (1) Card ban: scale < 1 → 1 (never 250×360 pip / Artemis card float).
-  // (2) Auto content-zoom REMOVED after 6.5× / 2.4× over-crop (founder: "다 커졌잖아"
-  //     / "아직도 커" on situation_pov beat 2). Per-image subject fill cannot be
-  //     guessed in the renderer — use editor 「피사체 확대」 (attributes.subject_zoom)
-  //     or regenerate with full-bleed prompts. Only explicit subject_zoom is honored.
-  // (3) fit=contain on scene/seedream stills → force cover (no letterbox card look).
-  const TALKING_HEAD_MODES = new Set(['persona', 'kol_narrator', 'avatar', 'talking_head']);
-  const POSTAGE_STAMP_MODES = new Set([
-    'situation_pov', 'scene_no_person', 'product_solo', 'hands_demo', 'before_after', 'social_proof',
-  ]);
-  const explicitSubjectZoom = Number(clipAttributes(clip).subject_zoom ?? 0);
-  const optOutZoom = clipAttributes(clip).no_subject_zoom === true
-    || clipAttributes(clip).full_frame === true;
-  const isStillVisual = isVisualAsset && !isVideo;
-  const isSeedreamStill =
-    isStillVisual &&
-    (_clipProvider.includes('seedream') || _clipProvider.includes('seedream-') || _clipProvider.includes('piapi'));
-  // Letterbox risk only (force cover) — NOT automatic crop scale.
-  const isPostageRisk =
-    isStillVisual &&
-    !optOutZoom &&
-    !TALKING_HEAD_MODES.has(_clipRenderMode) &&
-    (POSTAGE_STAMP_MODES.has(_clipRenderMode) || isSeedreamStill);
-  let effectiveScale = scale;
-  if (isVisualAsset && effectiveScale < 1) effectiveScale = 1; // card ban only
-  // Explicit editor zoom only (attributes.subject_zoom from 「피사체 확대」).
-  let mediaCropScale = 1;
-  if (!optOutZoom && explicitSubjectZoom >= 1.2) {
-    mediaCropScale = Math.max(1, explicitSubjectZoom / Math.max(effectiveScale, 1));
+function hasMotionKeyframes(clip: RenderClip): boolean {
+  return (clip.keyframes ?? []).some((keyframe) => (
+    keyframe.property === 'scale' || keyframe.property === 'x' || keyframe.property === 'y'
+  ));
+}
+
+function resolveMotionClipId(clip: RenderClip, subImages: SubImageState, narratorBeatIndex: number): string {
+  if (subImages.hasMultiple && subImages.activeIndex > 0) {
+    return `${clip.id}_beat_${narratorBeatIndex}_sub_${subImages.activeIndex}`;
   }
-  // Cinematic motion (founder 2026-06-15, Rule-of-One): B-roll visuals SLIDE in
-  // (directional, motion-blurred entrance), full talking-head shots get a subtle PUNCH-IN
-  // emphasis. Either is layered over the ambient ken-burns drift — one entrance + one drift,
-  // never a "Christmas tree". Both deterministic.
-  const motionSeed = narratorBeatIndex >= 0 ? narratorBeatIndex * 7 : Math.round(clip.startMs / 400);
-  const isTalkingHead = isNarratorVisual && !pipStyle;
-  const pan = isVisualAsset && !isTalkingHead && !isProofHero && !hasMotionKf
-    ? slidePanEntrance(frame, fps, pickDirection(motionSeed), { frames: 8 })
-    : null;
-  // 2026-07-10 founder "1초 지나고 두근": 발화 컷 무조건 punch-in(0.5s 지점 1.09 팝)이
-  // 모션 계획과 무관하게 얹히던 하드코딩 — keyframes(모션 권위) 있으면 끈다. 입장 팬도 동일.
-  const punch = isTalkingHead && !hasMotionKf
-    ? ` ${punchInTransform(frame, fps, durationInFrames, { at: 0.5, zoom: 1.09, settle: 1.04 })}`
-    : '';
-  const visualStyle: React.CSSProperties = {
-    ...transformStyle,
-    transform: `${pan ? pan.transform + ' ' : ''}translate(${x * 50 + kb.x}%, ${y * 50 + kb.y}%) scale(${effectiveScale * kb.scale}) rotate(${rotation}deg)${effects.transform}${punch}`,
-    // MERGE the entrance motion-blur with any effect-driven filter (chromatic-split,
-    // look, adjust, glow). The old `pan?.filter ?? …` DROPPED the effect filter whenever
-    // a B-roll clip also had a slide-pan entrance (pan.filter is 'blur(0px)' for most of
-    // the clip), so those effects silently no-op'd on B-roll. Clips without an effect
-    // filter keep transformStyle.filter undefined ⇒ result is just pan.filter (byte-stable).
-    filter: pan
-      ? [pan.filter, (transformStyle as React.CSSProperties).filter].filter(Boolean).join(' ')
-      : (transformStyle as React.CSSProperties).filter,
-    opacity: (transformStyle.opacity ?? 1) * (pan?.opacity ?? 1),
+  if (narratorBeatIndex >= 0) return `${clip.id}_beat_${narratorBeatIndex}`;
+  return clip.id;
+}
+
+interface AmbientMotion {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+const IDENTITY_MOTION: AmbientMotion = { scale: 1, x: 0, y: 0 };
+
+function resolveAmbientMotion(
+  clip: RenderClip,
+  runtime: ClipRuntime,
+  isVideo: boolean,
+  subImages: SubImageState,
+  fit: string,
+  narratorBeatIndex: number,
+  motionKeyframes: boolean,
+): AmbientMotion {
+  if (isVideo || motionKeyframes || effectByKind(clip, 'ken-burns')) return IDENTITY_MOTION;
+  const manuallyFramed = runtime.scale !== 1
+    || fit === 'contain'
+    || fit === 'cover'
+    || runtime.x !== 0
+    || runtime.y !== 0;
+  const motionId = resolveMotionClipId(clip, subImages, narratorBeatIndex);
+  if (Number(clipAttributes(clip).subshot_count ?? 0) > 1) {
+    const index = Number(clipAttributes(clip).subshot_index ?? 0);
+    return subshotKenBurns(runtime.frame, runtime.durationInFrames, `${motionId}_ss_${index}`);
+  }
+  if (manuallyFramed) return IDENTITY_MOTION;
+  if (subImages.hasMultiple) {
+    return kenBurnsTransform(subImages.localFrame, subImages.durationInFrames, motionId);
+  }
+  return kenBurnsTransform(runtime.frame, runtime.durationInFrames, motionId);
+}
+
+const TALKING_HEAD_MODES = new Set(['persona', 'kol_narrator', 'avatar', 'talking_head']);
+const POSTAGE_STAMP_MODES = new Set([
+  'situation_pov',
+  'scene_no_person',
+  'product_solo',
+  'hands_demo',
+  'before_after',
+  'social_proof',
+]);
+
+interface CropPolicy {
+  effectiveScale: number;
+  mediaScale: number;
+  forceCover: boolean;
+}
+
+function resolveCropPolicy(clip: RenderClip, runtime: ClipRuntime, isVideo: boolean): CropPolicy {
+  const attributes = clipAttributes(clip);
+  const renderMode = String(attributes.render_mode ?? '').toLowerCase();
+  const provider = String(attributes.provider ?? attributes.provider_model ?? '').toLowerCase();
+  const optOut = attributes.no_subject_zoom === true || attributes.full_frame === true;
+  const isStill = runtime.isVisualAsset && !isVideo;
+  const isSeedream = isStill
+    && (provider.includes('seedream') || provider.includes('seedream-') || provider.includes('piapi'));
+  const forceCover = isStill
+    && !optOut
+    && !TALKING_HEAD_MODES.has(renderMode)
+    && (POSTAGE_STAMP_MODES.has(renderMode) || isSeedream);
+  const effectiveScale = runtime.isVisualAsset && runtime.scale < 1 ? 1 : runtime.scale;
+  const subjectZoom = Number(attributes.subject_zoom ?? 0);
+  const mediaScale = !optOut && subjectZoom >= 1.2
+    ? Math.max(1, subjectZoom / Math.max(effectiveScale, 1))
+    : 1;
+  return { effectiveScale, mediaScale, forceCover };
+}
+
+function combineVisualFilter(pan: ReturnType<typeof slidePanEntrance> | null, transformStyle: React.CSSProperties): string | undefined {
+  if (!pan) return transformStyle.filter;
+  return [pan.filter, transformStyle.filter].filter(Boolean).join(' ');
+}
+
+function buildVisualStyle(
+  runtime: ClipRuntime,
+  motion: AmbientMotion,
+  crop: CropPolicy,
+  pan: ReturnType<typeof slidePanEntrance> | null,
+  punch: string,
+): React.CSSProperties {
+  const panTransform = pan ? `${pan.transform} ` : '';
+  return {
+    ...runtime.transformStyle,
+    transform: `${panTransform}translate(${runtime.x * 50 + motion.x}%, ${runtime.y * 50 + motion.y}%) scale(${crop.effectiveScale * motion.scale}) rotate(${runtime.rotation}deg)${runtime.effects.transform}${punch}`,
+    filter: combineVisualFilter(pan, runtime.transformStyle),
+    opacity: runtime.opacity * runtime.effects.opacity * paramNumber(pan?.opacity, 1),
     width: '100%',
     height: '100%',
     overflow: 'hidden',
-    ...(isNarratorVisual && pipStyle ? pipStyle : null),
   };
-  // attributes.fit: 'contain' shows the WHOLE uploaded asset (letterboxed) instead of
-  // the default cover-crop. Absent attribute ⇒ cover, byte-identical to before.
-  // 좁쌀: postage-risk scene stills NEVER letterbox (contain keeps the stamp small on black).
-  const fitAttrEffective = isPostageRisk ? 'cover' : fitAttr;
-  const baseMediaStyle = isProofHero ? proofCutawayMedia : proofFrame ? proofMedia : fitAttrEffective === 'contain' ? containMedia : coverMedia;
-  // Auto-reframe: shift cover-crop focus via objectPosition. Absent/center ⇒ byte-identical.
-  const reframeAnchor = REFRAME_POSITION[String(clipAttributes(clip).reframe ?? '').toLowerCase()];
-  const baseReframed = reframeAnchor && baseMediaStyle.objectFit === 'cover'
-    ? { ...baseMediaStyle, objectPosition: reframeAnchor }
-    : baseMediaStyle;
-  // CapCut chroma key — green-screen removal via an SVG filter referenced by url(). Absent (or
-  // disabled via the effect stack toggle) ⇒ untouched.
-  const chromaKeyRaw = effectByKind(clip, 'chroma-key');
-  const chromaKey = chromaKeyRaw && (chromaKeyRaw as { disabled?: boolean }).disabled !== true ? chromaKeyRaw : null;
-  const chromaId = chromaKey ? `ck-${String(clip.id).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
-  const chromaDefs = chromaKey
-    ? <ChromaKeyDefs id={chromaId} similarity={paramNumber(chromaKey.params?.similarity, 0.4)} />
+}
+
+interface MediaStylePlan {
+  style: React.CSSProperties;
+  chromaKey: Effect | null;
+  chromaId: string;
+}
+
+function resolveMediaStyle(clip: RenderClip, crop: CropPolicy, fit: string): MediaStylePlan {
+  const effectiveFit = crop.forceCover ? 'cover' : fit;
+  const base = effectiveFit === 'contain' ? containMedia : coverMedia;
+  const anchor = REFRAME_POSITION[String(clipAttributes(clip).reframe ?? '').toLowerCase()];
+  const reframed = anchor && base.objectFit === 'cover' ? { ...base, objectPosition: anchor } : base;
+  const rawChromaKey = effectByKind(clip, 'chroma-key');
+  const chromaKey = rawChromaKey && (rawChromaKey as { disabled?: boolean }).disabled !== true
+    ? rawChromaKey
     : null;
-  // Bulletproof crop-zoom: oversized media box centered in AbsoluteFill (overflow:hidden).
-  // Do NOT rely on transform:scale alone — Remotion Img defaults can fight it.
-  const pct = (mediaCropScale * 100).toFixed(2);
-  const mediaCrop: React.CSSProperties = mediaCropScale > 1.01
+  const chromaId = chromaKey ? `ck-${String(clip.id).replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
+  const percent = (crop.mediaScale * 100).toFixed(2);
+  const mediaCrop: React.CSSProperties = crop.mediaScale > 1.01
     ? {
         position: 'absolute',
-        width: `${pct}%`,
-        height: `${pct}%`,
+        width: `${percent}%`,
+        height: `${percent}%`,
         left: '50%',
         top: '50%',
         transform: 'translate(-50%, -50%)',
         maxWidth: 'none',
         maxHeight: 'none',
         objectFit: 'cover',
-        objectPosition: reframeAnchor || 'center center',
+        objectPosition: anchor || 'center center',
       }
     : {};
-  const mediaStyle = chromaKey
-    ? { ...baseReframed, ...mediaCrop, filter: [(baseReframed as React.CSSProperties).filter, `url(#${chromaId})`].filter(Boolean).join(' ') }
-    : { ...baseReframed, ...mediaCrop };
+  const style = chromaKey
+    ? { ...reframed, ...mediaCrop, filter: [reframed.filter, `url(#${chromaId})`].filter(Boolean).join(' ') }
+    : { ...reframed, ...mediaCrop };
+  return { style, chromaKey, chromaId };
+}
 
-  if (!clip.url) {
-    const spWording = String(clipAttributes(clip).social_proof_wording ?? '').trim();
-    const spAttrib = String(clipAttributes(clip).social_proof_attribution ?? '').trim();
-    if (spWording) {
-      return <TestimonialCard wording={spWording} attribution={spAttrib} accentColor={CAPTION_ACCENT} />;
-    }
-    return (
-      <AbsoluteFill style={{ background: 'oklch(20% 0.02 240)', opacity: transformStyle.opacity ?? 1 }}>
-        <span style={placeholderText}>{clip.textContent ?? ''}</span>
-        {effectOverlays(clip, frame, durationInFrames)}
-      </AbsoluteFill>
-    );
+function MissingVisual({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+  const wording = String(clipAttributes(clip).social_proof_wording ?? '').trim();
+  if (wording) {
+    const attribution = String(clipAttributes(clip).social_proof_attribution ?? '').trim();
+    return <TestimonialCard wording={wording} attribution={attribution} accentColor={CAPTION_ACCENT} />;
   }
-
-  const isGif = !isVideo && !hasSubImages && /\.gif(\?|$)/i.test(clip.url ?? '');
-  const media = hasSubImages ? (
-    // EDIT-PACING: show a different manga-shot image every SUBBEAT_MAX_MS; 2-frame flash on cut.
-    <div style={{ position: 'absolute', inset: 0, opacity: subBeatFlash }}>
-      <Img src={subImages[activeSubIdx]} style={mediaStyle} />
-    </div>
-  ) : isVideo ? (
-    <OffthreadVideo
-      src={clip.url}
-      startFrom={msToStartFrame(clip.inMs ?? 0, fps)}
-      endAt={clip.outMs != null ? msToDurationFrames(clip.outMs, fps) : undefined}
-      playbackRate={speed}
-      style={mediaStyle}
-    />
-  ) : isGif ? (
-    <Gif
-      src={clip.url}
-      fit={(mediaStyle.objectFit === 'contain' ? 'contain' : 'cover') as 'contain' | 'cover'}
-      style={mediaStyle}
-    />
-  ) : (
-    <Img src={clip.url} style={mediaStyle} />
+  return (
+    <AbsoluteFill style={{ background: 'oklch(20% 0.02 240)', opacity: runtime.transformStyle.opacity ?? 1 }}>
+      <span style={placeholderText}>{clip.textContent ?? ''}</span>
+      {effectOverlays(clip, runtime.frame, runtime.durationInFrames)}
+    </AbsoluteFill>
   );
+}
 
-  if (isProofHero) {
-    // The hero CARD honors the user's transforms (size/position/rotation from the
-    // inspector). Identity transforms add no style at all, so untouched proof reels
-    // render byte-identically — only deliberately edited clips change.
-    const hasUserTransform = x !== 0 || y !== 0 || scale !== 1 || rotation !== 0 || effects.transform !== '';
-    const heroCardStyle: React.CSSProperties = hasUserTransform
-      ? { ...proofCutawayHeroCard, transform: `translate(${x * 50}%, ${y * 50}%) scale(${scale}) rotate(${rotation}deg)${effects.transform}` }
-      : proofCutawayHeroCard;
+function VisualMedia({
+  clip,
+  runtime,
+  isVideo,
+  subImages,
+  mediaStyle,
+}: {
+  clip: RenderClip & { url: string };
+  runtime: ClipRuntime;
+  isVideo: boolean;
+  subImages: SubImageState;
+  mediaStyle: React.CSSProperties;
+}) {
+  if (subImages.hasMultiple) {
     return (
-      <AbsoluteFill style={{ ...proofCutawayBackdrop, opacity: visualStyle.opacity }}>
-        <div style={heroCardStyle}>
-          {media}
-        </div>
-      </AbsoluteFill>
+      <div style={{ position: 'absolute', inset: 0, opacity: subImages.flashOpacity }}>
+        <Img src={subImages.urls[subImages.activeIndex]} style={mediaStyle} />
+      </div>
     );
   }
+  if (isVideo) {
+    return (
+      <OffthreadVideo
+        src={clip.url}
+        startFrom={msToStartFrame(clip.inMs ?? 0, runtime.fps)}
+        endAt={clip.outMs != null ? msToDurationFrames(clip.outMs, runtime.fps) : undefined}
+        playbackRate={runtime.speed}
+        style={mediaStyle}
+      />
+    );
+  }
+  if (/\.gif(\?|$)/i.test(clip.url)) {
+    const fit = mediaStyle.objectFit === 'contain' ? 'contain' : 'cover';
+    return <Gif src={clip.url} fit={fit} style={mediaStyle} />;
+  }
+  return <Img src={clip.url} style={mediaStyle} />;
+}
 
+function VisualClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+  const isVideo = clipIsVideo(clip);
+  const subImages = resolveSubImageState(clip, isVideo, runtime.frame, runtime.fps);
+  const isNarratorVisual = runtime.sceneLayer === 'narrator'
+    && (runtime.isVisualAsset || clip.trackKind === 'video' || clip.trackKind === 'overlay');
+  const fit = String(clipAttributes(clip).fit ?? '').toLowerCase();
+  const narratorBeatIndex = Number(clipAttributes(clip).narrator_beat_index ?? -1);
+  const motionKeyframes = hasMotionKeyframes(clip);
+  const motion = resolveAmbientMotion(
+    clip,
+    runtime,
+    isVideo,
+    subImages,
+    fit,
+    narratorBeatIndex,
+    motionKeyframes,
+  );
+  const crop = resolveCropPolicy(clip, runtime, isVideo);
+  const motionSeed = narratorBeatIndex >= 0 ? narratorBeatIndex * 7 : Math.round(clip.startMs / 400);
+  const pan = runtime.isVisualAsset && !isNarratorVisual && !motionKeyframes
+    ? slidePanEntrance(runtime.frame, runtime.fps, pickDirection(motionSeed), { frames: 8 })
+    : null;
+  const punch = isNarratorVisual && !motionKeyframes
+    ? ' ' + punchInTransform(runtime.frame, runtime.fps, runtime.durationInFrames, { at: 0.5, zoom: 1.09, settle: 1.04 })
+    : '';
+  const visualStyle = buildVisualStyle(runtime, motion, crop, pan, punch);
+  const mediaPlan = resolveMediaStyle(clip, crop, fit);
+
+  if (!clip.url) return <MissingVisual clip={clip} runtime={runtime} />;
+
+  const visualClip = clip as RenderClip & { url: string };
   return (
     <AbsoluteFill style={{ ...visualStyle, overflow: 'hidden' }}>
-      {chromaDefs}
-      {proofFrame ? (
-        <AbsoluteFill style={{ ...proofFrameShell, overflow: 'hidden' }}>
-          {media}
-          <ProofStars />
-        </AbsoluteFill>
-      ) : (
-        media
-      )}
-      {effectOverlays(clip, frame, durationInFrames)}
+      {mediaPlan.chromaKey ? (
+        <ChromaKeyDefs
+          id={mediaPlan.chromaId}
+          similarity={paramNumber(mediaPlan.chromaKey.params?.similarity, 0.4)}
+        />
+      ) : null}
+      <VisualMedia
+        clip={visualClip}
+        runtime={runtime}
+        isVideo={isVideo}
+        subImages={subImages}
+        mediaStyle={mediaPlan.style}
+      />
+      {effectOverlays(clip, runtime.frame, runtime.durationInFrames)}
     </AbsoluteFill>
   );
 }
@@ -1830,27 +2018,27 @@ function clampHeadlineTitleToHook(clips: RenderClip[]): RenderClip[] {
   return changed ? out : clips;
 }
 
+const SCENE_LAYER_STACK: Record<SceneLayer, number> = {
+  audio: -1000,
+  background: 0,
+  hero: 1000,
+  narrator: 2000,
+  caption: 3000,
+};
+
 export function TimelineCompositionV2(props: RenderProps) {
   const { fps } = useVideoConfig();
   // Resolve the run's locale ONCE; absent/unknown ⇒ ko (byte-identical). The
   // resolved config flows to caption/title renderers via LocaleConfigContext.
   const localeConfig = resolveLocaleConfig(props.locale);
   const seenAudio = new Set<string>();
-  const proofCutawayWindows = props.clips
-    .filter((clip) => resolveSceneType(clip) === 'proof' && resolveSceneLayer(clip, 'proof') === 'hero')
-    .map(clipWindow);
   // LOOP_COMPOSE z-order invariant: background(0) → HERO(1) → narrator/PIP(2)
   // → caption/title(3). Watermark clips remain topmost by design.
   const stackKey = (clip: RenderClip) => {
-    if ((clip.effects ?? []).some((e) => e.kind === 'watermark')) return 10000;
+    if (effectByKind(clip, 'watermark')) return 10000;
     const scene_type = resolveSceneType(clip);
     const layer = resolveSceneLayer(clip, scene_type);
-    if (layer === 'audio') return -1000 + clip.zIndex;
-    if (layer === 'background') return 0 + clip.zIndex;
-    if (layer === 'hero') return 1000 + clip.zIndex;
-    if (layer === 'narrator') return 2000 + clip.zIndex;
-    if (layer === 'caption') return 3000 + clip.zIndex;
-    return clip.zIndex;
+    return SCENE_LAYER_STACK[layer] + clip.zIndex;
   };
   const sorted = clampHeadlineTitleToHook(resolveCaptionOverlaps(props.clips))
     .sort((a, b) => stackKey(a) - stackKey(b))
@@ -1883,7 +2071,7 @@ export function TimelineCompositionV2(props: RenderProps) {
           const duration = msToDurationFrames(clip.durationMs, fps);
           return (
             <Sequence key={clip.id} from={Math.max(0, from)} durationInFrames={duration}>
-              <ClipRenderer clip={clip} mix={props.mix} proofCutawayWindows={proofCutawayWindows} voiceWindows={voiceWindows} />
+              <ClipRenderer clip={clip} mix={props.mix} voiceWindows={voiceWindows} />
             </Sequence>
           );
         })}
@@ -1956,31 +2144,16 @@ function captionContainerForScene(scene_type: SceneType, captionPosition?: strin
   // clip.attributes.caption_position 명시 시 Meta 세이프존 클램프 위치 사용.
   // SAFEZONE-DEFAULT (founder 2026-07-02, 1549d88): caption_position 미지정 클립이 레거시
   // captionBand(y1040+h400 → 하단 1440px)로 Meta 하단 세이프존(>1248px)을 침범 → mid-bottom 강제.
-  // ⇒ sixDoPos는 || 'mid-bottom' 폴백으로 항상 정의. 아래 else의 captionBand 반환은 방어용(도달 불가):
-  //   'mid-bottom' 상수 키가 사라진 경우에만 실행되는 안전망이라 의도적으로 유지한다.
-  const sixDoPos = SIX_DO_CAPTION_POSITIONS[captionPosition || ''] || SIX_DO_CAPTION_POSITIONS['mid-bottom'];
-  if (sixDoPos) {
-    const clampedBottom = Math.min(sixDoPos.y + sixDoPos.height, META_SAFEZONE_BOTTOM);
-    const clampedHeight = clampedBottom - sixDoPos.y;
-    return {
-      position: 'absolute',
-      left: FRAME_ZONE.captionBand.x,
-      top: sixDoPos.y,
-      width: FRAME_ZONE.captionBand.width,
-      height: clampedHeight,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '0 18px',
-      boxSizing: 'border-box',
-      pointerEvents: 'none',
-    };
-  }
+  // ⇒ sixDoPos는 'mid-bottom' 폴백으로 항상 정의된다.
+  const sixDoPos = SIX_DO_CAPTION_POSITIONS[captionPosition || ''] ?? SIX_DO_CAPTION_POSITIONS['mid-bottom'];
+  const clampedBottom = Math.min(sixDoPos.y + sixDoPos.height, META_SAFEZONE_BOTTOM);
+  const clampedHeight = clampedBottom - sixDoPos.y;
   return {
     position: 'absolute',
     left: FRAME_ZONE.captionBand.x,
-    top: FRAME_ZONE.captionBand.y,
+    top: sixDoPos.y,
     width: FRAME_ZONE.captionBand.width,
-    height: FRAME_ZONE.captionBand.height,
+    height: clampedHeight,
     alignItems: 'center',
     justifyContent: 'center',
     padding: '0 18px',
@@ -2056,66 +2229,6 @@ const containMedia: React.CSSProperties = {
   width: '100%',
   height: '100%',
   objectFit: 'contain',
-};
-const pipBase: React.CSSProperties = {
-  position: 'absolute',
-  left: 90,
-  top: 1030,
-  right: 'auto',
-  bottom: 'auto',
-  width: 250,
-  height: 360,
-  borderRadius: 8,
-  overflow: 'hidden',
-  border: '3px solid rgba(255,255,255,0.86)',
-  boxShadow: '0 16px 42px rgba(0,0,0,0.48)',
-  background: '#000',
-};
-const pipBottomLeft: React.CSSProperties = pipBase;
-const pipBottomRight: React.CSSProperties = {
-  ...pipBase,
-  left: 690,
-};
-const proofCutawayBackdrop: React.CSSProperties = {
-  background: 'linear-gradient(180deg, rgba(245,247,250,1), rgba(223,229,238,1))',
-  boxSizing: 'border-box',
-};
-const proofCutawayHeroCard: React.CSSProperties = {
-  position: 'absolute',
-  left: FRAME_ZONE.safeContent.x,
-  top: FRAME_ZONE.safeContent.y,
-  width: FRAME_ZONE.safeContent.width,
-  height: 960,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  borderRadius: 8,
-  border: '2px solid rgba(10,18,32,0.18)',
-  boxShadow: '0 20px 54px rgba(20,28,40,0.24)',
-  overflow: 'hidden',
-  background: '#fff',
-};
-const proofCutawayMedia: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
-  objectFit: 'contain',
-  background: '#fff',
-};
-const proofFrameShell: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '8% 5% 20%',
-  background: 'linear-gradient(180deg, rgba(9,12,18,0.96), rgba(20,24,32,0.96))',
-};
-const proofMedia: React.CSSProperties = {
-  width: '92%',
-  height: '76%',
-  objectFit: 'contain',
-  borderRadius: 6,
-  border: '2px solid rgba(255,255,255,0.76)',
-  boxShadow: '0 18px 48px rgba(0,0,0,0.48)',
-  background: 'rgba(255,255,255,0.96)',
 };
 // F2: real 5-star rating glyph (SVG) instead of the old empty highlight box.
 const proofStarsRow: React.CSSProperties = {
@@ -2238,4 +2351,77 @@ const placeholderText: React.CSSProperties = {
   alignSelf: 'center',
   width: '100%',
   paddingTop: '40%',
+};
+
+/** Internal deterministic surface used by the source-quality contract tests. */
+export const __testing = {
+  captionFontFor,
+  msToStartFrame,
+  msToDurationFrames,
+  clipHash,
+  kenBurnsTransform,
+  subshotKenBurns,
+  effectByKind,
+  clipAttributes,
+  normalizeSceneType,
+  resolveSceneType,
+  resolveSceneLayer,
+  effectByKinds,
+  paramNumber,
+  paramString,
+  appendFilter,
+  lookFilter,
+  ChromaKeyDefs,
+  maskClipPath,
+  transformEffects,
+  effectOverlays,
+  resolveAudioVolume,
+  applyKf,
+  chunkLongCaption,
+  mergeCaptionLines,
+  captionLineGroups,
+  captionKeywordIndex,
+  applyTypeEntranceAnimation,
+  isAsciiDigit,
+  containsMetric,
+  autoCaptionTemplate,
+  resolveCaptionTemplate,
+  kwMotionTransform,
+  CaptionDecoLayer,
+  captionBaseStyle,
+  captionDecoColor,
+  wordsIn,
+  captionLineStartFrames,
+  isMetricKeyword,
+  CaptionWord,
+  CaptionLine,
+  DynamicCaption,
+  applyEmojiEntrance,
+  EmojiOverlay,
+  Watermark,
+  buildMusicVolumeFn,
+  clipIsVisual,
+  applyEffectStyle,
+  clipIsAudio,
+  AudioClipRenderer,
+  TitleClipRenderer,
+  CaptionClipRenderer,
+  ClipRenderer,
+  clipIsVideo,
+  resolveSubImageState,
+  hasMotionKeyframes,
+  resolveMotionClipId,
+  resolveAmbientMotion,
+  resolveCropPolicy,
+  combineVisualFilter,
+  buildVisualStyle,
+  resolveMediaStyle,
+  MissingVisual,
+  VisualMedia,
+  VisualClipRenderer,
+  resolveCaptionOverlaps,
+  clampHeadlineTitleToHook,
+  captionContainerForScene,
+  TestimonialCard,
+  ProofStars,
 };

@@ -4,7 +4,7 @@
  * Handles animation via the AnimationRegistry + property keyframe evaluation.
  * No side effects, no async, no randomness — safe for preview == render parity.
  */
-import { OffthreadVideo, Img } from 'remotion';
+import { OffthreadVideo, Img, Loop } from 'remotion';
 import type * as React from 'react';
 import type { VideoElement } from '@hiob/timeline/schema';
 import type { ElementRendererFn } from './index';
@@ -51,16 +51,18 @@ const VideoElementRenderer: ElementRendererFn<VideoElement> = ({
     return <Img src={el.src} style={style} />;
   }
 
-  return (
+  const video = (
     <OffthreadVideo
       src={el.src}
       style={style}
       startFrom={Math.round(((el.startFrom ?? 0) / 1000) * fps)}
       muted={el.muted ?? false}
       volume={el.volume ?? 1}
-      loop={el.loop ?? false}
     />
   );
+  if (!el.loop) return video;
+  const loopFrames = Math.max(1, Math.round((el.duration / 1000) * fps));
+  return <Loop durationInFrames={loopFrames}>{video}</Loop>;
 };
 
 defaultElementRendererRegistry.register('video', VideoElementRenderer);

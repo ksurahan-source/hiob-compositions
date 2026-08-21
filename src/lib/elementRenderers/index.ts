@@ -6,9 +6,9 @@
  * without hard-coded branching. New element types require no core changes.
  */
 import type * as React from 'react';
-import type { Element } from '@hiob/timeline/schema';
+import type { Animation, Element } from '@hiob/timeline/schema';
 import type { LocaleConfig } from '../../localeConfig';
-import type { AnimationRegistry, AnimationTransform } from '../animationRegistry';
+import type { AnimationRegistry, AnimationTransform, PresetIntensity } from '../animationRegistry';
 import { getEasing } from '../easing';
 
 export interface RendererProps<T extends Element = Element> {
@@ -84,6 +84,45 @@ export function evaluateKfProperty(
 }
 
 /** Apply an element's animations[] to a base transform state. Pure, deterministic. */
+const TRANSFORM_KEYS = ['scale', 'x', 'y', 'opacity', 'rotation'] as const;
+
+function mergeDefinedTransform(
+  result: AnimationTransform,
+  transform: AnimationTransform,
+): void {
+  for (const key of TRANSFORM_KEYS) {
+    const value = transform[key];
+    if (value !== undefined) result[key] = value;
+  }
+}
+
+function applyPresetAnimation(
+  anim: Extract<Animation, { type: 'preset' }>,
+  frameInAnim: number,
+  fps: number,
+  animDurFrames: number,
+  registry: AnimationRegistry,
+): AnimationTransform {
+  const preset = registry.getPreset(anim.presetId);
+  return preset
+    ? preset(frameInAnim, fps, animDurFrames, anim.intensity as PresetIntensity)
+    : {};
+}
+
+function applyPropertyAnimation(
+  anim: Extract<Animation, { type: 'property' }>,
+  progressPct: number,
+): AnimationTransform {
+  if (!anim.keyframes?.length) return {};
+  const keyframes = anim.keyframes as KfPoint[];
+  const transform: AnimationTransform = {};
+  for (const key of TRANSFORM_KEYS) {
+    const value = evaluateKfProperty(keyframes, progressPct, key, anim.easing);
+    if (value !== undefined) transform[key] = value;
+  }
+  return transform;
+}
+
 export function applyAnimations(
   element: Element,
   frame: number,
@@ -101,36 +140,10 @@ export function applyAnimations(
     const frameInAnim = frame - animStartFrame;
     const progressPct = Math.max(0, Math.min(100, (frameInAnim / animDurFrames) * 100));
 
-    // Named-preset reference → resolve from the AnimationRegistry (ken-burns,
-    // snap-zoom-in, overshoot-pop, …). This is the bridge that makes the registry
-    // reachable from a declarative ReelDoc, not just hand-authored keyframes.
-    if (anim.type === 'preset') {
-      const fn = registry.getPreset(anim.presetId);
-      if (fn) {
-        const t = fn(frameInAnim, fps, animDurFrames, (anim as { intensity?: string }).intensity);
-        if (t.scale !== undefined) result.scale = t.scale;
-        if (t.x !== undefined) result.x = t.x;
-        if (t.y !== undefined) result.y = t.y;
-        if (t.opacity !== undefined) result.opacity = t.opacity;
-        if (t.rotation !== undefined) result.rotation = t.rotation;
-      }
-      continue;
-    }
-
-    if (anim.type === 'property' && anim.keyframes?.length) {
-      const kfs = anim.keyframes as KfPoint[];
-      const fallback = (anim as { easing?: string }).easing;
-      const scale = evaluateKfProperty(kfs, progressPct, 'scale', fallback);
-      const x = evaluateKfProperty(kfs, progressPct, 'x', fallback);
-      const y = evaluateKfProperty(kfs, progressPct, 'y', fallback);
-      const opacity = evaluateKfProperty(kfs, progressPct, 'opacity', fallback);
-      const rotation = evaluateKfProperty(kfs, progressPct, 'rotation', fallback);
-      if (scale !== undefined) result.scale = scale;
-      if (x !== undefined) result.x = x;
-      if (y !== undefined) result.y = y;
-      if (opacity !== undefined) result.opacity = opacity;
-      if (rotation !== undefined) result.rotation = rotation;
-    }
+    const transform = anim.type === 'preset'
+      ? applyPresetAnimation(anim, frameInAnim, fps, animDurFrames, registry)
+      : applyPropertyAnimation(anim, progressPct);
+    mergeDefinedTransform(result, transform);
   }
 
   return result;
