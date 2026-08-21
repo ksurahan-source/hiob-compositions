@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:consumer": "tsc -p tsconfig.consumer.json --noEmit"
   },
   "main": "./src/index.ts",
   "exports": {

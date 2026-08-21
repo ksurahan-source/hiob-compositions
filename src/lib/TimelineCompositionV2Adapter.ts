@@ -12,7 +12,7 @@ import type { RenderProps, RenderClip } from '@hiob/timeline';
 import type { ReelDoc } from '@hiob/timeline/schema';
 
 type ReelElement = ReelDoc['elements'][number];
-type VisualElement = Exclude<ReelElement, { type: 'audio' }>;
+type VisualElement = ReelElement & { zIndex: number };
 
 function visualElement(clip: RenderClip): ReelElement | null {
   if (!clip.url) return null;
@@ -106,7 +106,7 @@ export function renderPropsToReelDoc(renderProps: RenderProps): ReelDoc {
     const element = convertClip(clip);
     if (!element) continue;
     if (element.type === 'audio') audioElements.push(element);
-    else visualElements.push(element);
+    else visualElements.push(element as VisualElement);
   }
 
   const elements: ReelDoc['elements'] = [
