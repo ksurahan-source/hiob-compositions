@@ -16,8 +16,8 @@
   ],
   "dependencies": {
     "@hiob/timeline": "github:ksurahan-source/hiob-timeline#6c9a29e09d9cb1c4f6d98cf4a11cfd4e7ec374eb",
-    "@remotion/gif": "4.0.466",
-    "@remotion/google-fonts": "4.0.466"
+    "@remotion/gif": "4.0.513",
+    "@remotion/google-fonts": "4.0.513"
   },
   "peerDependencies": {
     "react": "^19.0.0",
@@ -30,7 +30,7 @@
     "@vitest/coverage-v8": "4.1.11",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "remotion": "4.0.466",
+    "remotion": "4.0.513",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   },

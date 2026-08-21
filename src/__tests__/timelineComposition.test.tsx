@@ -26,6 +26,7 @@ vi.mock('remotion', async () => {
     return outputRange[index] + (outputRange[index + 1] - outputRange[index]) * progress;
   };
   return {
+    VERSION: '4.0.513',
     AbsoluteFill: container,
     Audio: media,
     Img: media,
