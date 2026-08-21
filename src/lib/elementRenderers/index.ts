@@ -51,6 +51,18 @@ interface KfPoint {
   [key: string]: unknown;
 }
 
+type PresetAnimation = Animation & {
+  type: 'preset';
+  presetId: string;
+  intensity?: PresetIntensity;
+};
+
+type PropertyAnimation = Animation & {
+  type: 'property';
+  keyframes?: KfPoint[];
+  easing?: string;
+};
+
 export function evaluateKfProperty(
   keyframes: KfPoint[],
   atPercent: number,
@@ -97,7 +109,7 @@ function mergeDefinedTransform(
 }
 
 function applyPresetAnimation(
-  anim: Extract<Animation, { type: 'preset' }>,
+  anim: PresetAnimation,
   frameInAnim: number,
   fps: number,
   animDurFrames: number,
@@ -110,7 +122,7 @@ function applyPresetAnimation(
 }
 
 function applyPropertyAnimation(
-  anim: Extract<Animation, { type: 'property' }>,
+  anim: PropertyAnimation,
   progressPct: number,
 ): AnimationTransform {
   if (!anim.keyframes?.length) return {};
@@ -141,8 +153,14 @@ export function applyAnimations(
     const progressPct = Math.max(0, Math.min(100, (frameInAnim / animDurFrames) * 100));
 
     const transform = anim.type === 'preset'
-      ? applyPresetAnimation(anim, frameInAnim, fps, animDurFrames, registry)
-      : applyPropertyAnimation(anim, progressPct);
+      ? applyPresetAnimation(
+        anim as PresetAnimation,
+        frameInAnim,
+        fps,
+        animDurFrames,
+        registry,
+      )
+      : applyPropertyAnimation(anim as PropertyAnimation, progressPct);
     mergeDefinedTransform(result, transform);
   }
 

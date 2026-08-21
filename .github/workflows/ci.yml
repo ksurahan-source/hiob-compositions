@@ -26,7 +26,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund --legacy-peer-deps
       - name: Typecheck
-        run: npm run typecheck
+        run: npm run typecheck && npm run typecheck:consumer
       - name: Test with complete branch coverage
         run: npm test
       - name: Analyze with SonarQube Cloud
