@@ -4,7 +4,7 @@
  */
 import { resolveBrandVar } from '../lib/brandVarResolver.ts';
 import type { BrandKit } from '@hiob/timeline/schema';
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 
 test('resolves literal and branded values with safe fallbacks', () => {
 
@@ -79,5 +79,7 @@ console.log('\n6. Malformed refs (graceful fallback)');
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n✅ Passed: ${passed}  ❌ Failed: ${failed}`);
+expect(failed).toBe(0);
+expect(passed).toBeGreaterThan(0);
 if (failed > 0) throw new Error(`${failed} brand variable assertions failed`);
 });

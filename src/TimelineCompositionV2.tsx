@@ -839,13 +839,17 @@ function isAsciiDigit(char: string | undefined): boolean {
 }
 
 function containsMetric(text: string): boolean {
-  for (let start = 0; start < text.length; start += 1) {
-    if (!isAsciiDigit(text[start])) continue;
+  let start = 0;
+  while (start < text.length) {
+    if (!isAsciiDigit(text[start])) {
+      start += 1;
+      continue;
+    }
     let cursor = start + 1;
     while (isAsciiDigit(text[cursor]) || text[cursor] === ',') cursor += 1;
     while (text[cursor] !== undefined && /\s/u.test(text[cursor])) cursor += 1;
     if (METRIC_SUFFIXES.some((suffix) => text.startsWith(suffix, cursor))) return true;
-    start = cursor - 1;
+    start = cursor;
   }
   return false;
 }
