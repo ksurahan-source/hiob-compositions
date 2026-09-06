@@ -19,7 +19,7 @@
     "tsx": "4.20.6"
   },
   "dependencies": {
-    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#843730b58391594b550a3935bd2783daac9f8149",
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#f664b1a66468df45fd13e4fe8dba8a9ab5c99b93",
     "@remotion/gif": "4.0.466",
     "@remotion/google-fonts": "4.0.466"
   },
