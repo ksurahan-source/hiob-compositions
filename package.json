@@ -4,14 +4,19 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
+    "./frame-timeline": "./src/FrameTimelineComposition.tsx",
+    "./frame-timeline-model": "./src/frameTimelineModel.ts",
     ".": "./src/index.ts",
     "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx"
   },
   "files": [
     "src"
   ],
+  "scripts": {
+    "test:frame-timeline": "node --experimental-strip-types --test src/__tests__/frameTimeline.test.ts"
+  },
   "dependencies": {
-    "@hiob/timeline": "^0.1.1",
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#843730b58391594b550a3935bd2783daac9f8149",
     "@remotion/gif": "4.0.466",
     "@remotion/google-fonts": "4.0.466"
   },
