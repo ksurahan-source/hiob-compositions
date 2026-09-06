@@ -2,30 +2,40 @@
   "name": "@hiob/compositions",
   "version": "0.1.2",
   "type": "module",
+  "scripts": {
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "typecheck:consumer": "tsc -p tsconfig.consumer.json --noEmit"
+  },
   "main": "./src/index.ts",
   "exports": {
-    "./frame-timeline": "./src/FrameTimelineComposition.tsx",
-    "./frame-timeline-model": "./src/frameTimelineModel.ts",
     ".": "./src/index.ts",
-    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx"
+    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx",
+    "./frame-timeline": "./src/FrameTimelineComposition.tsx",
+    "./frame-timeline-model": "./src/frameTimelineModel.ts"
   },
   "files": [
     "src"
   ],
-  "scripts": {
-    "test:frame-timeline": "node --import tsx --test src/__tests__/frameTimeline.test.ts"
-  },
-  "devDependencies": {
-    "tsx": "4.20.6"
-  },
   "dependencies": {
-    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#f664b1a66468df45fd13e4fe8dba8a9ab5c99b93",
-    "@remotion/gif": "4.0.466",
-    "@remotion/google-fonts": "4.0.466"
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#3d0d2dfac03e536646bb8c1f33000d725b0e71c5",
+    "@remotion/gif": "4.0.513",
+    "@remotion/google-fonts": "4.0.513"
   },
   "peerDependencies": {
     "react": "^19.0.0",
     "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.4",
+    "@vitest/coverage-v8": "4.1.11",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.513",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
   },
   "publishConfig": {
     "access": "public"
