@@ -13,7 +13,10 @@
     "src"
   ],
   "scripts": {
-    "test:frame-timeline": "node --experimental-strip-types --test src/__tests__/frameTimeline.test.ts"
+    "test:frame-timeline": "node --import tsx --test src/__tests__/frameTimeline.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "4.20.6"
   },
   "dependencies": {
     "@hiob/timeline": "github:ksurahan-source/hiob-timeline#843730b58391594b550a3935bd2783daac9f8149",
