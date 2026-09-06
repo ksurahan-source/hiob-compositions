@@ -18,7 +18,7 @@
     "src"
   ],
   "dependencies": {
-    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#3d0d2dfac03e536646bb8c1f33000d725b0e71c5",
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#cd13d64c39c7f5bffe12feec190dc542aea4170c",
     "@remotion/gif": "4.0.513",
     "@remotion/google-fonts": "4.0.513"
   },
