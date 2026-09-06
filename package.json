@@ -10,13 +10,15 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx"
+    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx",
+    "./frame-timeline": "./src/FrameTimelineComposition.tsx",
+    "./frame-timeline-model": "./src/frameTimelineModel.ts"
   },
   "files": [
     "src"
   ],
   "dependencies": {
-    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#6c9a29e09d9cb1c4f6d98cf4a11cfd4e7ec374eb",
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#cd13d64c39c7f5bffe12feec190dc542aea4170c",
     "@remotion/gif": "4.0.513",
     "@remotion/google-fonts": "4.0.513"
   },
