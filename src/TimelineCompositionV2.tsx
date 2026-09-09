@@ -1841,7 +1841,7 @@ export function TimelineCompositionV2(props: RenderProps) {
     if (layer === 'caption') return 3000 + clip.zIndex;
     return clip.zIndex;
   };
-  const sorted = clampHeadlineTitleToHook(resolveCaptionOverlaps(props.clips))
+  const sorted = [...clampHeadlineTitleToHook(resolveCaptionOverlaps(props.clips))]
     .sort((a, b) => stackKey(a) - stackKey(b))
     .filter((clip) => {
       const isAudio = clip.assetKind === 'audio' || clip.trackKind === 'audio' || clip.trackKind === 'music' || clip.trackKind === 'sfx';
