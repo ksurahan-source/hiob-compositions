@@ -1,11 +1,12 @@
 {
   "name": "@hiob/compositions",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "type": "module",
   "scripts": {
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "typecheck:consumer": "tsc -p tsconfig.consumer.json --noEmit"
+    "typecheck:consumer": "tsc -p tsconfig.consumer.json --noEmit",
+    "test:ugc": "vitest run src/__tests__/audioMix.test.ts src/__tests__/ugcText.test.ts"
   },
   "main": "./src/index.ts",
   "exports": {
@@ -18,7 +19,7 @@
     "src"
   ],
   "dependencies": {
-    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#cd13d64c39c7f5bffe12feec190dc542aea4170c",
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#5727af761e7f3e5b0a02b669ac58a8c5ab1309d8",
     "@remotion/gif": "4.0.513",
     "@remotion/google-fonts": "4.0.513"
   },
@@ -35,7 +36,8 @@
     "react-dom": "19.2.0",
     "remotion": "4.0.513",
     "typescript": "5.9.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "@remotion/cli": "4.0.513"
   },
   "publishConfig": {
     "access": "public"

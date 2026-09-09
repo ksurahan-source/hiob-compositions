@@ -42,6 +42,7 @@ vi.mock('remotion', async () => {
 vi.mock('@remotion/gif', () => ({ Gif: ({ children }: { children?: React.ReactNode }) => <span>{children}</span> }));
 vi.mock('@remotion/google-fonts/BlackHanSans', () => ({ loadFont: () => ({ fontFamily: 'Mock Black Han Sans' }) }));
 
+import { audioVolumeAt } from '../lib/audioMix';
 import { TimelineCompositionV2, __testing } from '../TimelineCompositionV2';
 import * as publicApi from '../index';
 import { chromaticSplitFilter } from '../effects/chromaticSplit';
@@ -66,6 +67,8 @@ import TextElementRenderer from '../lib/elementRenderers/TextElementRenderer';
 import VideoElementRenderer from '../lib/elementRenderers/VideoElementRenderer';
 import { renderPropsToReelDoc } from '../lib/TimelineCompositionV2Adapter';
 import { DEFAULT_LOCALE_CONFIG, resolveLocaleConfig } from '../localeConfig';
+
+const legacyVolume = (clip: RenderClip, mix?: RenderProps['mix']) => audioVolumeAt(clip, mix, 0);
 
 function makeClip(overrides: Partial<RenderClip> = {}): RenderClip {
   return {
@@ -233,11 +236,11 @@ describe('TimelineCompositionV2 deterministic helpers', () => {
     expect(__testing.effectOverlays(makeClip(), 0, 30)).toBeNull();
 
     const mix = { voice: 0.8, music: 0.2, sfx: 0.4, autoDuck: false, duck: 0.7 } as RenderProps['mix'];
-    expect(__testing.resolveAudioVolume(makeClip({ volume: 0 }), mix)).toBe(0);
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'audio', assetKind: 'audio' }), mix)).toBe(0.8);
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'music', assetKind: 'audio' }), mix)).toBe(0.2);
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'sfx', assetKind: 'audio' }), mix)).toBe(0.4);
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'video' }), mix)).toBe(1);
+    expect(legacyVolume(makeClip({ volume: 0 }), mix)).toBe(0);
+    expect(legacyVolume(makeClip({ trackKind: 'audio', assetKind: 'audio' }), mix)).toBe(0.8);
+    expect(legacyVolume(makeClip({ trackKind: 'music', assetKind: 'audio' }), mix)).toBe(0.2);
+    expect(legacyVolume(makeClip({ trackKind: 'sfx', assetKind: 'audio' }), mix)).toBe(0.4);
+    expect(legacyVolume(makeClip({ trackKind: 'video' }), mix)).toBe(1);
 
     const keyframes = [
       { property: 'scale' as const, timeMs: 0, value: 1, easing: 'ease-in' as const },
@@ -319,9 +322,9 @@ describe('TimelineCompositionV2 exhaustive contracts', () => {
     expect(__testing.transformEffects(makeClip({ effects: [makeEffect('chromatic-split', { pulse: 'true' })] }), 1, 30, 30).filter).toBeTruthy();
     expect(__testing.transformEffects(makeClip({ effects: [makeEffect('speed-ramp', { at: 0.5, frames: 10, blur: 20 })] }), 20, 30, 30).filter).toBeTruthy();
 
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'audio', assetKind: 'audio' }))).toBe(1);
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'music', assetKind: 'audio' }))).toBe(0.15);
-    expect(__testing.resolveAudioVolume(makeClip({ trackKind: 'sfx', assetKind: 'audio' }))).toBe(0.6);
+    expect(legacyVolume(makeClip({ trackKind: 'audio', assetKind: 'audio' }))).toBe(1);
+    expect(legacyVolume(makeClip({ trackKind: 'music', assetKind: 'audio' }))).toBe(0.15);
+    expect(legacyVolume(makeClip({ trackKind: 'sfx', assetKind: 'audio' }))).toBe(0.6);
 
     const unknownEasing = makeClip({ keyframes: [
       { property: 'x', timeMs: 0, value: 0, easing: 'missing' as never },
@@ -404,12 +407,12 @@ describe('TimelineCompositionV2 exhaustive contracts', () => {
     renderNode(<__testing.EmojiOverlay effect={makeEffect('emoji-overlay', { position: 'missing', mode: 'floating', holdMs: 0 })} fps={30} />);
 
     renderNode(<__testing.Watermark clip={makeClip({ textContent: undefined, effects: [makeEffect('watermark', { mode: 'single', position: 'missing' })] })} containerStyle={{}} />);
-    const duck = __testing.buildMusicVolumeFn(1, 0.5, 30, [{ startMs: 1000, endMs: 2000 }]);
+    const duck = (frame: number) => audioVolumeAt({ trackKind: 'music', startMs: 0, durationMs: 4000, volume: 1 }, { autoDuck: true, duck: 0.5 }, frame / 30 * 1000, [{ startMs: 1000, endMs: 2000 }]);
     expect(duck(0)).toBe(1);
     expect(duck(30)).toBeLessThan(1);
     expect(duck(45)).toBe(0.5);
     expect(duck(75)).toBeLessThanOrEqual(1);
-    expect(__testing.buildMusicVolumeFn(0.2, 3, 30, [])(0)).toBe(0.2);
+    expect(audioVolumeAt({ trackKind: 'music', startMs: 0, durationMs: 4000, volume: 0.2 }, { autoDuck: true, duck: 3 }, 0, [])).toBe(0.2);
 
     expect(__testing.clipIsVisual(makeClip({ assetKind: 'image' }), false)).toBe(true);
     expect(__testing.clipIsVisual(makeClip({ assetKind: 'video' }), false)).toBe(true);
@@ -941,5 +944,54 @@ describe('ReelDoc interpreter and animation library', () => {
     expect(resolveLocaleConfig('unknown')).toBe(DEFAULT_LOCALE_CONFIG);
     expect(publicApi.ASPECT_DIMENSIONS['16:9'].width).toBe(1920);
     expect(publicApi.DEFAULT_FPS).toBe(30);
+  });
+});
+
+describe('UGC integration after frame timeline merge', () => {
+  test('media callbacks share timeline-relative ducking, mute, trim and speed', () => {
+    const runtime = makeRuntime({ isAudioAsset: true, isVisualAsset: false, speed: 2 });
+    const clip = makeClip({ trackKind: 'music', assetKind: 'audio', url: 'music.wav', startMs: 5000, durationMs: 3000, inMs: 400, outMs: 6000, volume: 0.4 });
+    const mix = { version: 2 as const, voice: 1, music: 0.5, sfx: 0.6, autoDuck: true, duck: 0.75 };
+    const args = { clip, mix, voiceWindows: [{ startMs: 6000, endMs: 7000 }], runtime };
+    const audio = __testing.AudioClipRenderer(args as never)!;
+    expect(audio.props.volume(0)).toBe(0.2);
+    expect(audio.props.volume(30)).toBe(0.05);
+    expect(audio.props.startFrom).toBe(12);
+    expect(audio.props.playbackRate).toBe(2);
+    const mediaArgs = { clip: { ...clip, trackKind: 'video', assetKind: 'video', attributes: { source_audio_mode: 'mute' } }, mix, voiceWindows: [], runtime, isVideo: true, subImages: { hasMultiple: false }, mediaStyle: {} };
+    const video = __testing.VisualMedia(mediaArgs as never);
+    expect(video.props.volume(30)).toBe(0);
+    const enabled = __testing.VisualMedia({ ...mediaArgs, clip: { ...mediaArgs.clip, attributes: { source_audio_mode: 'dialogue' } } } as never);
+    expect(enabled.props.volume(30)).toBe(0.4);
+  });
+
+  test('large phrase styles render their exact text and preserve approved windows', () => {
+    for (const [kind, variant, text, emphasis] of [
+      ['title', 'question', '수경이 왜 이럴까?', '수경'],
+      ['caption', 'product', '아이세이프 사용법', '아이세이프'],
+      ['caption', 'cta', '용도·사용법 보기', '보기'],
+      ['caption', 'plain', '마지막 음절', '없는말'],
+      ['caption', 'plain', undefined, ''],
+    ] as const) {
+      const clip = makeClip({ trackKind: kind, assetKind: undefined, textContent: text, attributes: { text_profile: 'ugc-v3', text_style: { variant, emphasis } } });
+      const markup = renderNode(<__testing.ClipRenderer clip={clip} voiceWindows={[]} />);
+      expect(Number(markup.match(/font-size:([\d.]+)px/)?.[1])).toBeCloseTo(kind === 'title' ? 101.2 : 82.8);
+      if (text) expect(markup.replace(/<[^>]*>/g, '')).toBe(text);
+      if (emphasis && text?.includes(emphasis)) expect(markup).toContain(variant === 'product' ? '#8EE6CE' : '#FFD65C');
+    }
+    const title = makeClip({ id: 'title', trackKind: 'title', assetKind: undefined, startMs: 0, durationMs: 5000, attributes: { text_profile: 'ugc-v3' } });
+    const caption = makeClip({ id: 'caption', trackKind: 'caption', assetKind: undefined, startMs: 0, durationMs: 4000, attributes: { text_profile: 'ugc-v3' } });
+    const legacy = makeClip({ id: 'legacy', trackKind: 'caption', assetKind: undefined, startMs: 1000, durationMs: 1000 });
+    expect(__testing.clampHeadlineTitleToHook([title, legacy])[0]).toBe(title);
+    expect(__testing.resolveCaptionOverlaps([caption, legacy])[0]).toBe(caption);
+  });
+
+  test('frozen v2 snapshots render distinct audio IDs without changing input order', () => {
+    const one = makeClip({ id: 'one', trackKind: 'audio', assetKind: 'audio', url: 'same.wav' });
+    const clips = Object.freeze([one, { ...one, id: 'two' }]);
+    const props = { fps: 30, width: 1080, height: 1920, durationMs: 2000, aspect: '9:16', mix: { version: 2, voice: 1, music: 0.2, sfx: 0.6 }, clips } as unknown as RenderProps;
+    const html = renderNode(<TimelineCompositionV2 {...props} />);
+    expect(html.match(/<span><\/span>/g)).toHaveLength(2);
+    expect(clips.map(c => c.id)).toEqual(['one', 'two']);
   });
 });

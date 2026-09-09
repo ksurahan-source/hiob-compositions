@@ -37,6 +37,8 @@ import { chromaticSplitFilter } from './effects/chromaticSplit';
 import { speedRampStyle } from './effects/speedRamp';
 import { LightSweep } from './effects/lightSweep';
 import { EASING_FN } from './lib/easing';
+import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
+import { UGC_TEXT_PROFILE, UGC_SAFE_AREA, ugcTextLayout } from './lib/ugcText';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -620,14 +622,6 @@ function effectOverlays(clip: RenderClip, frame: number, durationInFrames: numbe
   }
 
   return overlays.length ? <>{overlays}</> : null;
-}
-
-function resolveAudioVolume(clip: RenderClip, mix?: RenderProps['mix']): number {
-  if (clip.volume != null) return clip.volume;
-  if (clip.trackKind === 'audio') return mix?.voice ?? 1;
-  if (clip.trackKind === 'music') return mix?.music ?? 0.15;
-  if (clip.trackKind === 'sfx') return mix?.sfx ?? 0.6;
-  return 1;
 }
 
 // Easing curves now live in ./lib/easing (shared with the ReelDoc element path)
@@ -1523,25 +1517,24 @@ function Watermark({ clip, containerStyle }: { clip: RenderClip; containerStyle:
   );
 }
 
-type VoiceWindow = { startMs: number; endMs: number };
-
-const DUCK_FADE_MS = 250;
-
-function buildMusicVolumeFn(baseVolume: number, duckDepth: number, fps: number, voiceWindows: VoiceWindow[]): (f: number) => number {
-  return (f: number) => {
-    const gMs = (f / fps) * 1000;
-    let weight = 0;
-    for (const w of voiceWindows) {
-      const fadeStart = w.startMs - DUCK_FADE_MS;
-      const fadeEnd = w.endMs + DUCK_FADE_MS;
-      if (gMs >= fadeStart && gMs < fadeEnd) {
-        const fadeIn = Math.max(0, Math.min(1, (gMs - fadeStart) / DUCK_FADE_MS));
-        const fadeOut = Math.max(0, Math.min(1, (fadeEnd - gMs) / DUCK_FADE_MS));
-        weight = Math.max(weight, Math.min(fadeIn, fadeOut));
-      }
-    }
-    return Math.max(0, baseVolume * (1 - weight * duckDepth));
-  };
+function UgcText({ clip }: { clip: RenderClip }) {
+  const config = useContext(LocaleConfigContext);
+  const box = ugcTextLayout(clip.trackKind, clip.attributes);
+  const text = clip.textContent ?? '';
+  const index = box.emphasis ? text.indexOf(box.emphasis) : -1;
+  const accent = box.variant === 'product' ? '#8EE6CE' : box.variant === 'cta' ? '#FFD65C' : '#FFD65C';
+  const safeTop = UGC_SAFE_AREA.top + 12;
+  return <div style={{ position: 'absolute', left: box.x, top: safeTop, width: box.width,
+    height: UGC_SAFE_AREA.bottom - 12 - safeTop, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}>
+    <div style={{ flex: `0 1 ${box.y - safeTop}px`, minHeight: 0 }} />
+    <div style={{ flex: '0 0 auto',
+    fontFamily: captionFontFor(config), fontSize: box.fontSize, lineHeight: 1.16,
+    color: 'white', textAlign: 'center', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere',
+    WebkitTextStroke: `${clip.trackKind === 'title' ? 5 : 4}px #151515`, paintOrder: 'stroke fill',
+    textShadow: '0 3px 5px rgba(0,0,0,0.6)', pointerEvents: 'none' }}>
+    {index < 0 ? text : <>{text.slice(0, index)}<span style={{ color: accent }}>{box.emphasis}</span>{text.slice(index + box.emphasis.length)}</>}
+    </div>
+  </div>;
 }
 
 interface ClipRuntime {
@@ -1642,16 +1635,10 @@ function AudioClipRenderer({
   runtime: ClipRuntime;
 }) {
   if (!clip.url) return null;
-  const isMusicClip = clip.trackKind === 'music'
-    || (runtime.isAudioAsset && clip.trackKind !== 'audio' && clip.trackKind !== 'sfx');
-  const autoDuck = Boolean(mix?.autoDuck && isMusicClip && voiceWindows.length > 0);
-  const volume = autoDuck
-    ? buildMusicVolumeFn(mix?.music ?? 0.15, mix?.duck ?? 0.7, runtime.fps, voiceWindows)
-    : resolveAudioVolume(clip, mix);
   return (
     <Audio
       src={clip.url}
-      volume={volume}
+      volume={(localFrame) => audioVolumeAt(clip, mix, localFrame / runtime.fps * 1000, voiceWindows)}
       startFrom={msToStartFrame(clip.inMs ?? 0, runtime.fps)}
       endAt={clip.outMs != null ? msToDurationFrames(clip.outMs, runtime.fps) : undefined}
       playbackRate={runtime.speed}
@@ -1682,13 +1669,17 @@ function ClipRenderer({ clip, mix, voiceWindows }: { clip: RenderClip; mix?: Ren
   if (clipIsAudio(clip, runtime)) {
     return <AudioClipRenderer clip={clip} mix={mix} voiceWindows={voiceWindows} runtime={runtime} />;
   }
+  if ((clip.trackKind === 'title' || clip.trackKind === 'caption') && !runtime.isVisualAsset && clip.attributes?.text_profile === UGC_TEXT_PROFILE) {
+    // Explicit phrase clips own their entire time window, including the final syllable.
+    return <UgcText clip={clip} />;
+  }
   if (clip.trackKind === 'title' && !runtime.isVisualAsset) {
     return <TitleClipRenderer clip={clip} runtime={runtime} />;
   }
   if ((clip.trackKind === 'caption' || clip.trackKind === 'overlay') && !runtime.isVisualAsset) {
     return <CaptionClipRenderer clip={clip} runtime={runtime} />;
   }
-  return <VisualClipRenderer clip={clip} runtime={runtime} />;
+  return <VisualClipRenderer clip={clip} runtime={runtime} mix={mix} voiceWindows={voiceWindows} />;
 }
 
 interface SubImageState {
@@ -1895,12 +1886,16 @@ function VisualMedia({
   isVideo,
   subImages,
   mediaStyle,
+  mix,
+  voiceWindows,
 }: {
   clip: RenderClip & { url: string };
   runtime: ClipRuntime;
   isVideo: boolean;
   subImages: SubImageState;
   mediaStyle: React.CSSProperties;
+  mix?: RenderProps['mix'];
+  voiceWindows: VoiceWindow[];
 }) {
   if (subImages.hasMultiple) {
     return (
@@ -1913,6 +1908,7 @@ function VisualMedia({
     return (
       <OffthreadVideo
         src={clip.url}
+        volume={(localFrame) => audioVolumeAt(clip, mix, localFrame / runtime.fps * 1000, voiceWindows)}
         startFrom={msToStartFrame(clip.inMs ?? 0, runtime.fps)}
         endAt={clip.outMs != null ? msToDurationFrames(clip.outMs, runtime.fps) : undefined}
         playbackRate={runtime.speed}
@@ -1927,7 +1923,7 @@ function VisualMedia({
   return <Img src={clip.url} style={mediaStyle} />;
 }
 
-function VisualClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+function VisualClipRenderer({ clip, runtime, mix, voiceWindows }: { clip: RenderClip; runtime: ClipRuntime; mix?: RenderProps['mix']; voiceWindows: VoiceWindow[] }) {
   const isVideo = clipIsVideo(clip);
   const subImages = resolveSubImageState(clip, isVideo, runtime.frame, runtime.fps);
   const isNarratorVisual = runtime.sceneLayer === 'narrator'
@@ -1972,6 +1968,8 @@ function VisualClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: Clip
         isVideo={isVideo}
         subImages={subImages}
         mediaStyle={mediaPlan.style}
+        mix={mix}
+        voiceWindows={voiceWindows}
       />
       {effectOverlays(clip, runtime.frame, runtime.durationInFrames)}
     </AbsoluteFill>
@@ -1987,7 +1985,7 @@ function VisualClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: Clip
 // don't overlap are returned UNCHANGED (byte-stable — no Phase-13 regression).
 function resolveCaptionOverlaps(clips: RenderClip[]): RenderClip[] {
   const captions = clips
-    .filter((c) => c.trackKind === 'caption' && c.assetKind !== 'image' && c.assetKind !== 'video' && c.assetKind !== 'audio')
+    .filter((c) => c.trackKind === 'caption' && c.attributes?.text_profile !== UGC_TEXT_PROFILE && c.assetKind !== 'image' && c.assetKind !== 'video' && c.assetKind !== 'audio')
     .sort((a, b) => a.startMs - b.startMs || String(a.id).localeCompare(String(b.id)));
   if (captions.length < 2) return clips;
   // E7C: GUARANTEE exactly one caption at any instant. The old version only
@@ -2044,7 +2042,7 @@ function clampHeadlineTitleToHook(clips: RenderClip[]): RenderClip[] {
   if (hookEndMs <= 0) return clips;
   let changed = false;
   const out = clips.map((c) => {
-    if (c.trackKind !== 'title') return c;
+    if (c.trackKind !== 'title' || c.attributes?.text_profile === UGC_TEXT_PROFILE) return c;
     if ((c.effects ?? []).some((e) => e.kind === 'watermark')) return c; // watermark spans by design
     const end = c.startMs + c.durationMs;
     if (c.startMs > 50 || end <= hookEndMs + 50) return c; // not the always-on headline
@@ -2076,20 +2074,18 @@ export function TimelineCompositionV2(props: RenderProps) {
     const layer = resolveSceneLayer(clip, scene_type);
     return SCENE_LAYER_STACK[layer] + clip.zIndex;
   };
-  const sorted = clampHeadlineTitleToHook(resolveCaptionOverlaps(props.clips))
+  const sorted = [...clampHeadlineTitleToHook(resolveCaptionOverlaps(props.clips))]
     .sort((a, b) => stackKey(a) - stackKey(b))
     .filter((clip) => {
       const isAudio = clip.assetKind === 'audio' || clip.trackKind === 'audio' || clip.trackKind === 'music' || clip.trackKind === 'sfx';
       if (!isAudio || !clip.url) return true;
-      const key = `${clip.trackKind}|${clip.url}|${clip.startMs}`;
+      const key = props.mix?.version === 2 ? clip.id : `${clip.trackKind}|${clip.url}|${clip.startMs}`;
       if (seenAudio.has(key)) return false;
       seenAudio.add(key);
       return true;
     });
   // Voice time windows for audio ducking (ED-09).
-  const voiceWindows: VoiceWindow[] = props.clips
-    .filter((c) => c.trackKind === 'audio' && c.url)
-    .map((c) => ({ startMs: c.startMs, endMs: c.startMs + c.durationMs }));
+  const voiceWindows = speechWindows(sorted, props.mix);
   // Scene-cut frames (hero/background visual entrances) drive the light-leak flashes.
   const transitionFrames = sorted
     .filter((clip) => {
@@ -2411,7 +2407,6 @@ export const __testing = {
   maskClipPath,
   transformEffects,
   effectOverlays,
-  resolveAudioVolume,
   applyKf,
   chunkLongCaption,
   mergeCaptionLines,
@@ -2435,7 +2430,6 @@ export const __testing = {
   applyEmojiEntrance,
   EmojiOverlay,
   Watermark,
-  buildMusicVolumeFn,
   clipIsVisual,
   applyEffectStyle,
   clipIsAudio,
