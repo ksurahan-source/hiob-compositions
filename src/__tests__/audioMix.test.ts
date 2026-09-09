@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { audioVolumeAt, speechWindows } from '../lib/audioMix.ts';
 
@@ -44,4 +44,26 @@ test('explicit v2 mix multiplies bus and clip gain, including bus silence', () =
 test('speech windows ignore muted and ambient tracks and map source words through trim/speed', () => {
   const voice = { trackKind: 'audio', startMs: 10000, durationMs: 4000, inMs: 1000, url: 'voice.wav', attributes: { audio_role: 'narration', speed: 2 }, wordTimings: [{ startMs: 1200, endMs: 2000, word: '아이세이프' }] };
   assert.deepEqual(speechWindows([voice, { ...voice, volume: 0 }, { ...voice, attributes: { audio_role: 'ambience' } }], mix), [{ startMs: 10100, endMs: 10500 }]);
+});
+
+test('automation holds endpoints and skips disabled or zero-duration fades', () => {
+  const clip = { ...music, effects: [
+    { kind: 'fade-in', disabled: true, params: { durationMs: 2000 } },
+    { kind: 'fade-out', params: { durationMs: 0 } },
+  ], keyframes: [
+    { property: 'volume', timeMs: 100, value: 0.2 },
+    { property: 'volume', timeMs: 200, value: 0.5 },
+    { property: 'volume', timeMs: 300, value: 0.8 },
+  ] };
+  assert.equal(audioVolumeAt(clip, {}, 0), 0.4 * 0.2);
+  assert.equal(audioVolumeAt(clip, {}, 250), 0.4 * 0.65);
+  assert.equal(audioVolumeAt(clip, {}, 400), 0.4 * 0.8);
+  assert.equal(audioVolumeAt(music, { ...mix, duckFadeMs: 0 }, 1200, windows), 0.1);
+  assert.equal(audioVolumeAt(music, { ...mix, duckFadeMs: 0 }, 2000, windows), 0.4);
+});
+
+test('speech windows clip source endings and discard words removed by trim', () => {
+  const voice = { trackKind: 'audio', startMs: 5000, durationMs: 2000, url: 'speech.wav', inMs: 1000, outMs: 2000,
+    wordTimings: [{ startMs: 0, endMs: 500 }, { startMs: 1500, endMs: 2500 }, { startMs: 3000, endMs: 3500 }] };
+  assert.deepEqual(speechWindows([voice]), [{ startMs: 5500, endMs: 6000 }]);
 });

@@ -35,12 +35,6 @@ const ramp = (frame: number, dur: number, from: number, to: number, easing: stri
   return from + getEasing(easing)(t) * (to - from);
 };
 
-function clipHash(id: string): number {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = ((hash * 31) + id.charCodeAt(i)) >>> 0;
-  return hash;
-}
-
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const;
 
 const builtinPresets: Record<string, PresetAnimationFn> = {

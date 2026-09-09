@@ -29,7 +29,7 @@ const TextElementRenderer: ElementRendererFn<TextElement> = ({
   // {variable} substitution
   let text = el.text ?? '';
   for (const [k, v] of Object.entries(variables)) {
-    text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+    text = text.split(`{${k}}`).join(String(v));
   }
 
   const baseOpacity = el.opacity ?? 1;

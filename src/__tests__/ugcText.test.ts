@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { ugcTextLayout, phraseGroups, UGC_SAFE_AREA } from '../lib/ugcText.ts';
 test('large preset preserves the renderer 88/72px baseline at 1.15x', () => {
@@ -17,4 +17,10 @@ test('phrase splitting retains every word and never creates more than two lines'
  const groups=phraseGroups(text);
  assert.equal(groups.join(' ').replace(/\s+/g,' '),text);
  assert.ok(groups.length>1);assert.ok(groups.every(group=>group.split('\n').length<=2));
+});
+
+test('empty text and configured emphasis preserve their editing meaning', () => {
+ assert.deepEqual(phraseGroups('  '), []);
+ assert.equal(ugcTextLayout('caption',{text_style:{variant:'product',emphasis:'아이세이프'}}).emphasis,'아이세이프');
+ assert.equal(ugcTextLayout('caption',{caption_emphasis_words:['사용법']}).emphasis,'사용법');
 });
