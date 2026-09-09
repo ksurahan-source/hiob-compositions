@@ -11,13 +11,27 @@
     "src"
   ],
   "dependencies": {
-    "@hiob/timeline": "^0.1.1",
+    "@hiob/timeline": "github:ksurahan-source/hiob-timeline#fb34f727d5fd911109ba785557e2ddbf2b7925d1",
     "@remotion/gif": "4.0.466",
     "@remotion/google-fonts": "4.0.466"
   },
   "peerDependencies": {
     "react": "^19.0.0",
     "remotion": "^4.0.0"
+  },
+  "scripts": {
+    "test:ugc": "node --experimental-strip-types --test src/__tests__/audioMix.test.ts src/__tests__/ugcText.test.ts",
+    "typecheck": "tsc --noEmit --skipLibCheck --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 --allowImportingTsExtensions --esModuleInterop src/TimelineCompositionV2.tsx verification/ugc-v3/entry.tsx"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.466",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.466",
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
   },
   "publishConfig": {
     "access": "public"
