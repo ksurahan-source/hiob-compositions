@@ -1388,7 +1388,12 @@ function UgcText({ clip }: { clip: RenderClip }) {
     letterSpacing: cinematic ? '0.01em' : undefined, color: cinematic ? '#F5F3EC' : 'white', textAlign: 'center', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere',
     WebkitTextStroke: cinematic ? '0.6px rgba(12,18,22,0.7)' : `${clip.trackKind === 'title' ? 5 : 4}px #151515`, paintOrder: 'stroke fill',
     textShadow: cinematic ? '0 2px 9px rgba(0,0,0,0.75)' : '0 3px 5px rgba(0,0,0,0.6)', pointerEvents: 'none' }}>
-    {index < 0 ? text : <>{text.slice(0, index)}<span style={{ color: accent }}>{box.emphasis}</span>{text.slice(index + box.emphasis.length)}</>}
+    <span style={cinematic && clip.trackKind === 'caption' ? {
+      background: 'rgba(9,15,20,0.82)', padding: '5px 12px', borderRadius: 4,
+      boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone',
+    } : undefined}>
+      {index < 0 ? text : <>{text.slice(0, index)}<span style={{ color: accent }}>{box.emphasis}</span>{text.slice(index + box.emphasis.length)}</>}
+    </span>
   </div>;
 }
 
