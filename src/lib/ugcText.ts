@@ -13,7 +13,7 @@ export function ugcTextLayout(kind: string, attributes: Record<string, unknown> 
     fontSize: size, width, height,
     x: Math.max(UGC_SAFE_AREA.left + 12, Math.min(UGC_SAFE_AREA.right - width - 12, finite(raw.x, 102))),
     y: Math.max(UGC_SAFE_AREA.top + 12, Math.min(UGC_SAFE_AREA.bottom - height - 12, y)),
-    variant: ['plain', 'question', 'product', 'cta'].includes(String(raw.variant)) ? String(raw.variant) : 'plain',
+    variant: ['plain', 'question', 'product', 'cta', 'cinematic'].includes(String(raw.variant)) ? String(raw.variant) : 'plain',
     emphasis: String(raw.emphasis ?? (attributes.caption_emphasis_words as string[] | undefined)?.[0] ?? ''),
   };
 }

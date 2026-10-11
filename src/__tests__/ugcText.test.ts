@@ -18,3 +18,10 @@ test('phrase splitting retains every word and never creates more than two lines'
  assert.equal(groups.join(' ').replace(/\s+/g,' '),text);
  assert.ok(groups.length>1);assert.ok(groups.every(group=>group.split('\n').length<=2));
 });
+
+test('cinematic typography remains explicitly selected and inside the same platform safe area', () => {
+ const box=ugcTextLayout('caption',{text_style:{variant:'cinematic',fontSize:54,y:1800}});
+ assert.equal(box.variant,'cinematic');assert.equal(box.fontSize,54);
+ assert.ok(box.y+box.height<=UGC_SAFE_AREA.bottom-12);
+ assert.equal(ugcTextLayout('caption',{text_style:{variant:'unrecognized'}}).variant,'plain');
+});

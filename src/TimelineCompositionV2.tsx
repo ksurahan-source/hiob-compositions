@@ -44,6 +44,7 @@ import { UGC_TEXT_PROFILE, ugcTextLayout } from './lib/ugcText';
 // AND the Lambda render (a bare system-font stack would resolve differently per
 // environment and re-break the WYSIWYG unification).
 import { loadFont as loadCaptionFont } from '@remotion/google-fonts/BlackHanSans';
+import { loadFont as loadCinematicFont } from '@remotion/google-fonts/NotoSansKR';
 // i18n Phase 0→1: caption typography + line-break knobs come from the locale
 // config single source. The real locale now threads in via RenderProps.locale
 // (sourced from run.brief.locale) → resolved once in the composition → carried
@@ -1377,12 +1378,16 @@ function UgcText({ clip }: { clip: RenderClip }) {
   const box = ugcTextLayout(clip.trackKind, clip.attributes);
   const text = clip.textContent ?? '';
   const index = box.emphasis ? text.indexOf(box.emphasis) : -1;
+  const cinematic = box.variant === 'cinematic';
+  const fontFamily = cinematic
+    ? `"${loadCinematicFont('normal', { weights: ['500'], subsets: ['korean', 'latin'] }).fontFamily}", ${config.captionFontFallback}`
+    : captionFontFor(config);
   const accent = box.variant === 'product' ? '#8EE6CE' : box.variant === 'cta' ? '#FFD65C' : '#FFD65C';
   return <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.width,
-    fontFamily: captionFontFor(config), fontSize: box.fontSize, lineHeight: 1.16,
-    color: 'white', textAlign: 'center', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere',
-    WebkitTextStroke: `${clip.trackKind === 'title' ? 5 : 4}px #151515`, paintOrder: 'stroke fill',
-    textShadow: '0 3px 5px rgba(0,0,0,0.6)', pointerEvents: 'none' }}>
+    fontFamily, fontSize: box.fontSize, fontWeight: cinematic ? 500 : undefined, lineHeight: 1.16,
+    letterSpacing: cinematic ? '0.01em' : undefined, color: cinematic ? '#F5F3EC' : 'white', textAlign: 'center', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere',
+    WebkitTextStroke: cinematic ? '0.6px rgba(12,18,22,0.7)' : `${clip.trackKind === 'title' ? 5 : 4}px #151515`, paintOrder: 'stroke fill',
+    textShadow: cinematic ? '0 2px 9px rgba(0,0,0,0.75)' : '0 3px 5px rgba(0,0,0,0.6)', pointerEvents: 'none' }}>
     {index < 0 ? text : <>{text.slice(0, index)}<span style={{ color: accent }}>{box.emphasis}</span>{text.slice(index + box.emphasis.length)}</>}
   </div>;
 }
