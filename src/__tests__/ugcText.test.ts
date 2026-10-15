@@ -25,3 +25,23 @@ test('cinematic typography remains explicitly selected and inside the same platf
  assert.ok(box.y+box.height<=UGC_SAFE_AREA.bottom-12);
  assert.equal(ugcTextLayout('caption',{text_style:{variant:'unrecognized'}}).variant,'plain');
 });
+
+test('chosen width clamps position with the exact rendered box', () => {
+ const box=ugcTextLayout('caption',{text_style:{width:420,x:900,y:2000,fontSize:64}});
+ assert.equal(box.width,420);assert.equal(box.x,UGC_SAFE_AREA.right-420-12);
+ assert.equal(ugcTextLayout('caption',{text_style:{width:10}}).width,240);
+ assert.equal(ugcTextLayout('caption',{text_style:{width:10000}}).width,804);
+});
+test('selected entrance and keyword motion are normalized and change frame styles',async()=>{
+ const {ugcTextMotion}=await import('../lib/ugcText.ts');
+ const box=ugcTextLayout('caption',{text_style:{entrance:'rise',keywordMotion:'pulse'}});
+ assert.equal(box.entrance,'rise');assert.equal(box.keywordMotion,'pulse');
+ const first=ugcTextMotion(box.entrance,box.keywordMotion,0,30);
+ const settled=ugcTextMotion(box.entrance,box.keywordMotion,10,30);
+ assert.equal(first.container.opacity,0);assert.equal(settled.container.opacity,1);
+ assert.notEqual(first.container.transform,settled.container.transform);
+ assert.notEqual(first.emphasis.transform,settled.emphasis.transform);
+ assert.deepEqual(ugcTextMotion('none','none',0,30),{container:{opacity:1,transform:''},emphasis:{display:'inline-block',transform:''}});
+ assert.equal(ugcTextLayout('caption',{text_style:{entrance:'made-up'}}).entrance,'none');
+ assert.equal(ugcTextLayout('caption',{caption_entrance_effect:'bounce'}).entrance,'bounce');
+});
