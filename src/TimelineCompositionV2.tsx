@@ -38,7 +38,7 @@ import { speedRampStyle } from './effects/speedRamp';
 import { LightSweep } from './effects/lightSweep';
 import { EASING_FN } from './lib/easing';
 import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
-import { UGC_TEXT_PROFILE, ugcTextLayout } from './lib/ugcText';
+import { UGC_TEXT_PROFILE, ugcTextLayout, ugcTextMotion } from './lib/ugcText';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -1376,6 +1376,9 @@ function Watermark({ clip, containerStyle }: { clip: RenderClip; containerStyle:
 function UgcText({ clip }: { clip: RenderClip }) {
   const config = useContext(LocaleConfigContext);
   const box = ugcTextLayout(clip.trackKind, clip.attributes);
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const motion = ugcTextMotion(box.entrance, box.keywordMotion, frame, fps);
   const text = clip.textContent ?? '';
   const index = box.emphasis ? text.indexOf(box.emphasis) : -1;
   const cinematic = box.variant === 'cinematic';
@@ -1383,7 +1386,7 @@ function UgcText({ clip }: { clip: RenderClip }) {
     ? `"${loadCinematicFont('normal', { weights: ['500'], subsets: ['korean', 'latin'] }).fontFamily}", ${config.captionFontFallback}`
     : captionFontFor(config);
   const accent = box.variant === 'product' ? '#8EE6CE' : box.variant === 'cta' ? '#FFD65C' : '#FFD65C';
-  return <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.width,
+  return <div style={{ ...motion.container, position: 'absolute', left: box.x, top: box.y, width: box.width,
     fontFamily, fontSize: box.fontSize, fontWeight: cinematic ? 500 : undefined, lineHeight: 1.16,
     letterSpacing: cinematic ? '0.01em' : undefined, color: cinematic ? '#F5F3EC' : 'white', textAlign: 'center', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere',
     WebkitTextStroke: cinematic ? '0.6px rgba(12,18,22,0.7)' : `${clip.trackKind === 'title' ? 5 : 4}px #151515`, paintOrder: 'stroke fill',
@@ -1392,7 +1395,7 @@ function UgcText({ clip }: { clip: RenderClip }) {
       background: 'rgba(9,15,20,0.82)', padding: '5px 12px', borderRadius: 4,
       boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone',
     } : undefined}>
-      {index < 0 ? text : <>{text.slice(0, index)}<span style={{ color: accent }}>{box.emphasis}</span>{text.slice(index + box.emphasis.length)}</>}
+      {index < 0 ? text : <>{text.slice(0, index)}<span style={{ ...motion.emphasis, color: accent }}>{box.emphasis}</span>{text.slice(index + box.emphasis.length)}</>}
     </span>
   </div>;
 }
