@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   authorOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics,
-  organicTextBoundsAtFrame, ugcTextMotion, organicParentSignature, assertOrganicTextParent,
+  organicTextBoundsAtFrame, organicTextMotionGeometry, organicTextMotion, organicEmphasisState, ugcTextMotion, organicParentSignature, assertOrganicTextParent,
 } from '../lib/organicText.mjs';
 
 // Explicit deterministic test metrics; production callers must measure the loaded font.
@@ -115,4 +115,68 @@ test('shared motion output stays identical to the legacy ugc-v3 evaluator', () =
       for (const frame of [0, 1, 4, 8, 19, 31]) assert.deepEqual(ugcTextMotion(entrance, keyword, frame, 30), legacy(entrance, keyword, frame, 30));
     }
   }
+});
+
+const v2input = patch => input({layoutVersion:'organic-v2',fontSizes:[56],widths:[560],placements:[{y:700}],entrance:'pop',
+  motion:{entranceMs:400,intensity:.8,settle:.18,exit:'rise-out',exitMs:250},
+  palette:{base:'#FFFFFF',accent:'#FFD65C',contrast:'#8EE6CE',alert:'#FF6B82'},
+  semanticSpans:[{text:'제품',startMs:500,endMs:1400,color:'accent',motion:'pulse',intensity:1}],...patch});
+test('v2 timed semantic color and motion retain the complete phrase and exact source clock',()=>{
+ const source=v2input(), {measureText: ignored, ...serializable}=source, before=structuredClone(serializable);
+ const style=authorOrganicTextLayout(source);
+ assert.equal(style.layoutVersion,'organic-v2');assert.deepEqual(style.lines,['실제 제품을 확인하세요']);
+ assert.deepEqual(style.emphasisSpans[0],{line:0,start:3,end:5,text:'제품',startMs:500,endMs:1400,color:'accent',motion:'pulse',intensity:1});
+ assert.equal(organicEmphasisState(style,style.emphasisSpans[0],0).color,'#FFFFFF');
+ assert.equal(organicEmphasisState(style,style.emphasisSpans[0],25).color,'#FFD65C');
+ assert.ok(organicEmphasisState(style,style.emphasisSpans[0],25).scale>1.1);
+ assert.equal(organicEmphasisState(style,style.emphasisSpans[0],45).scale,1);
+ assert.equal(organicTextMotionGeometry(style,0).scale,.76);
+ assert.equal(organicTextMotionGeometry(style,12).scale,1);
+ assert.ok(organicTextMotionGeometry(style,59).opacity<.2);
+ assert.ok(organicTextMotionGeometry(style,59).y<0);
+ const {measureText: ignoredAfter, ...after}=source;assert.deepEqual(after,before);
+ assert.equal(validateOrganicTextLayout(style,{text:source.text,startMs:1000,durationMs:2000}).valid,true);
+});
+test('v2 validates maximum semantic excursion against protected content and does not silently shrink motion',()=>{
+ const plain=authorOrganicTextLayout(v2input({semanticSpans:[]}));
+ const animated=authorOrganicTextLayout(v2input());
+ assert.ok(animated.bounds.width>plain.bounds.width);
+ const region={x:plain.bounds.right+2,y:700,width:4,height:80};
+ assert.throws(()=>authorOrganicTextLayout(v2input({protectedRegions:[region]})),{code:'ORGANIC_TEXT_NO_SAFE_FIT'});
+ assert.ok(Array.from({length:60},(_,frame)=>organicTextBoundsAtFrame(animated,frame)).every(b=>b.left>=90&&b.right<=918&&b.top>=270&&b.bottom<=1248));
+});
+test('v2 rejects ambiguous, overlapping, modified or out-of-time semantic phrases and injected fill',()=>{
+ assert.throws(()=>authorOrganicTextLayout(v2input({text:'제품 제품',semanticSpans:[{text:'제품',startMs:0,endMs:1000,color:'accent',motion:'none',intensity:1}]})),{code:'ORGANIC_TEXT_NO_SAFE_FIT'});
+ for(const patch of [{endMs:2001},{startMs:1400,endMs:500},{color:'url(https://bad)'},{intensity:2}]) {
+  const original=v2input();assert.throws(()=>authorOrganicTextLayout(v2input({semanticSpans:[{...original.semanticSpans[0],...patch}]})),{code:'ORGANIC_TEXT_EMPHASIS_INVALID'});
+ }
+ const original=v2input();assert.throws(()=>authorOrganicTextLayout(v2input({semanticSpans:[original.semanticSpans[0],{...original.semanticSpans[0]}]})),{code:'ORGANIC_TEXT_EMPHASIS_INVALID'});
+ assert.throws(()=>authorOrganicTextLayout(v2input({fill:{kind:'linear',angle:90,colors:['#FFFFFF','url(https://bad)']}})),{code:'ORGANIC_TEXT_LAYOUT_INVALID'});
+ assert.throws(()=>authorOrganicTextLayout(v2input({motion:{...v2input().motion,exitMs:1900}})),{code:'ORGANIC_TEXT_LAYOUT_INVALID'});
+ const style=authorOrganicTextLayout(v2input());assert.throws(()=>validateOrganicTextLayout({...style,emphasisSpans:[{...style.emphasisSpans[0],text:'변조'}]}),{code:'ORGANIC_TEXT_EMPHASIS_INVALID'});
+});
+test('v2 palette/fill only change paint while fonts, line metrics and v1 evaluator remain stable',()=>{
+ const a=authorOrganicTextLayout(v2input());
+ const b=authorOrganicTextLayout(v2input({fill:{kind:'linear',angle:90,colors:['#FFFFFF','#FFD65C']}}));
+ assert.deepEqual(a.bounds,b.bounds);assert.deepEqual(a.lineWidths,b.lineWidths);
+ const v1=authorOrganicTextLayout(input());for(const frame of [0,1,7,18,59]) assert.deepEqual(organicTextMotion(v1,frame),ugcTextMotion(v1.entrance,v1.keywordMotion,frame,v1.fps));
+ assert.throws(()=>validateOrganicTextLayout({...v1,motion:v2input().motion}),{code:'ORGANIC_TEXT_LAYOUT_INVALID'});
+});
+
+test('v2 font measurements follow the rendered inline chunks instead of assuming cross-span kerning',()=>{
+ const measure=(text,size)=>({width:[...text].length*size*.5-(text.includes('AV')?12:0)});
+ const style=authorOrganicTextLayout(v2input({text:'AV 제품',measureText:measure,semanticSpans:[{text:'V',startMs:0,endMs:1000,color:'accent',motion:'none',intensity:0}]}));
+ assert.equal(style.lineWidths[0],measure('A',56).width+measure('V',56).width+measure(' 제품',56).width);
+ assert.notEqual(style.lineWidths[0],measure('AV 제품',56).width);
+ assert.equal(verifyOrganicTextMetrics(style,measure).valid,true);
+});
+
+test('v2 preferred line groups reflow awkward source newlines without rewriting any token',()=>{
+ const text='왔다! 그런데 첫\n상대가 하필 이';
+ const style=authorOrganicTextLayout(v2input({text,fontSizes:[40],lineGroups:['왔다! 그런데','첫 상대가 하필 이'],semanticSpans:[]}));
+ assert.deepEqual(style.lines,['왔다! 그런데','첫 상대가 하필 이']);assert.equal(validateOrganicTextLayout(style,{text}).valid,true);
+ assert.equal(verifyOrganicTextMetrics(style,measureText).valid,true);
+ assert.throws(()=>authorOrganicTextLayout(v2input({text,lineGroups:['왔다! 다른','첫 상대가 하필 이'],semanticSpans:[]})),{code:'ORGANIC_TEXT_SOURCE_MISMATCH'});
+ assert.throws(()=>authorOrganicTextLayout(input({lineGroups:['실제 제품을 확인하세요']})),{code:'ORGANIC_TEXT_SOURCE_MISMATCH'});
+ assert.throws(()=>authorOrganicTextLayout(v2input({text,lineGroups:['왔다! 그런데 첫 상대가 하필 이'],fontSizes:[160],semanticSpans:[]})),{code:'ORGANIC_TEXT_NO_SAFE_FIT'});
 });

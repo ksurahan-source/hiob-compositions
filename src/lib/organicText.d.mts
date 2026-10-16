@@ -1,4 +1,11 @@
 export const ORGANIC_TEXT_PROFILE: 'organic-v1';
+export const ORGANIC_TEXT_V2_PROFILE: 'organic-v2';
+export function isOrganicTextProfile(value:unknown):boolean;
+export type OrganicMotion = {entranceMs:number;intensity:number;settle:number;exit:'none'|'fade-out'|'rise-out'|'shrink';exitMs:number};
+export type OrganicPalette = {base:string;accent:string;contrast:string;alert:string};
+export type OrganicSemanticSpan = {text:string;startMs:number;endMs:number;color:'accent'|'contrast'|'alert';motion:'none'|'pulse'|'lift';intensity:number};
+export type OrganicResolvedSpan = OrganicSemanticSpan & {line:number;start:number;end:number};
+export type OrganicFill = {kind:'linear';angle:number;colors:[string,string]};
 export type OrganicRect = {left: number; top: number; right: number; bottom: number};
 export type OrganicBounds = OrganicRect & {width: number; height: number};
 export type OrganicFont = {fontFamily: 'Black Han Sans' | 'Noto Sans KR'; fontWeight: 400 | 500; letterSpacing?: number; lineHeight?: number};
@@ -9,7 +16,8 @@ export type OrganicPanel = {color: string; paddingX: number; paddingY: number; b
 export type OrganicShadow = {x: number; y: number; blur: number; color: string};
 export type OrganicMatrix = [number, number, number, number, number, number];
 export type OrganicTextStyle = {
-  layoutVersion: 'organic-v1'; x: number; y: number; width: number; height: number;
+  layoutVersion: 'organic-v1' | 'organic-v2';
+  motion?:OrganicMotion;palette?:OrganicPalette;emphasisSpans?:OrganicResolvedSpan[];fill?:OrganicFill; x: number; y: number; width: number; height: number;
   fontSize: number; lineHeight: number; fontFamily: OrganicFont['fontFamily']; fontWeight: OrganicFont['fontWeight']; letterSpacing: number;
   lines: string[]; lineWidths: number[]; measurementId: string; safeArea: OrganicRect;
   startMs: number; durationMs: number; fps: number;
@@ -23,6 +31,7 @@ export type OrganicContext = {
   protectedRegions?: OrganicRegion[]; occupiedRegions?: OrganicRegion[];
 };
 export type OrganicAuthorInput = Omit<OrganicContext, 'clip'> & {
+  layoutVersion?:'organic-v1'|'organic-v2';lineGroups?:string[];motion?:OrganicMotion;palette?:OrganicPalette;semanticSpans?:OrganicSemanticSpan[];fill?:OrganicFill;
   text: string; font: OrganicFont; measurementId: string; safeArea: OrganicRect; startMs: number; durationMs: number;
   measureText?: OrganicMeasure; measurements?: Record<string, Record<string, number>>;
   placements?: {x?: number; y: number; align?: 'left' | 'center' | 'right'}[];
@@ -45,3 +54,7 @@ export function validateOrganicTextLayout(style: unknown, context?: OrganicConte
 export function assertOrganicTextLayout(style: unknown, text?: string): OrganicTextStyle;
 export function verifyOrganicTextMetrics(style: OrganicTextStyle, measureText: OrganicMeasure, tolerance?: number): {valid: true; measurementId: string};
 export function authorOrganicTextLayout(input: OrganicAuthorInput): OrganicTextStyle;
+
+export function organicTextMotionGeometry(style:OrganicTextStyle,frame:number): ReturnType<typeof ugcTextMotionGeometry>;
+export function organicTextMotion(style:OrganicTextStyle,frame:number):ReturnType<typeof ugcTextMotion>;
+export function organicEmphasisState(style:OrganicTextStyle,span:OrganicResolvedSpan,frame:number):{active:boolean;scale:number;y:number;color:string;transform:string};

@@ -42,7 +42,8 @@ import { LightSweep } from './effects/lightSweep';
 import { EASING_FN } from './lib/easing';
 import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
 import { UGC_TEXT_PROFILE, ugcTextLayout, ugcTextMotion } from './lib/ugcText';
-import { ORGANIC_TEXT_PROFILE, assertOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics } from './lib/organicText.mjs';
+import { ORGANIC_TEXT_PROFILE, isOrganicTextProfile, organicTextMotion, organicEmphasisState, assertOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics } from './lib/organicText.mjs';
+import { nativeShotEffectActive, validateNativeShotEffect, NATIVE_SHOT_EFFECTS_CONTRACT } from './lib/nativeShotEffects.mjs';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -331,6 +332,8 @@ function transformEffects(clip: RenderClip, frame: number, fps: number, duration
     // CapCut effect enable/disable — a disabled effect is skipped entirely (byte-identical
     // to not having it), so the editor can toggle an effect off without deleting it.
     if ((eff as { disabled?: boolean }).disabled === true) continue;
+    if ((eff as { contract?: string }).contract === NATIVE_SHOT_EFFECTS_CONTRACT) validateNativeShotEffect(eff, clip.durationMs);
+    if (!nativeShotEffectActive(eff, tMs)) continue;
     if (eff.kind === 'fade-in') {
       const dMs = paramNumber(eff.params?.durationMs, 300);
       opacity *= dMs > 0 ? Math.min(1, tMs / dMs) : 1;
@@ -445,7 +448,13 @@ function transformEffects(clip: RenderClip, frame: number, fps: number, duration
 // Per-clip visual overlays. `frame` is the clip-local frame so animated
 // effects (glitch flicker, light-leak drift, vhs roll, particle float) stay
 // deterministic and reproducible under Remotion render.
-function effectOverlays(clip: RenderClip, frame: number, durationInFrames: number): React.ReactNode {
+function effectOverlays(clip: RenderClip, frame: number, durationInFrames: number, fps: number): React.ReactNode {
+  // Use the same clip-local effect window for CSS filters and overlay layers.
+  // Legacy unmarked effects retain their original full-clip behavior.
+  clip = {...clip, effects: (clip.effects ?? []).filter(effect => {
+    if ((effect as {contract?: string}).contract === NATIVE_SHOT_EFFECTS_CONTRACT) validateNativeShotEffect(effect, clip.durationMs);
+    return nativeShotEffectActive(effect, frame / fps * 1000);
+  })};
   const overlays: React.ReactNode[] = [];
   const grain = effectByKind(clip, 'grain');
   if (grain) {
@@ -1417,7 +1426,7 @@ function OrganicText({clip, parentStyle}: {clip: RenderClip; parentStyle: React.
     void verify();
     return () => {active = false; continueRender(fontGate);};
   }, [box, font.fontFamily, fontGate]);
-  const motion = ugcTextMotion(box.entrance, box.keywordMotion, frame, fps);
+  const motion = organicTextMotion(box, frame);
   const matrix = box.parentFrames?.[frame];
   const accent = box.variant === 'product' ? '#8EE6CE' : '#FFD65C';
   const shadow = box.shadow;
@@ -1428,10 +1437,10 @@ function OrganicText({clip, parentStyle}: {clip: RenderClip; parentStyle: React.
     opacity: matrix ? parentStyle.opacity : 1,
     mixBlendMode: parentStyle.mixBlendMode,
   }}>
-    <div data-text-profile="organic-v1" data-measurement-id={box.measurementId} style={{
+    <div data-text-profile={box.layoutVersion} data-measurement-id={box.measurementId} style={{
       ...motion.container, position: 'absolute', left: box.x, top: box.y, width: box.width, height: box.height,
       fontFamily: `"${font.fontFamily}"`, fontSize: box.fontSize, fontWeight: box.fontWeight, lineHeight: box.lineHeight,
-      letterSpacing: `${box.letterSpacing}px`, color: box.variant === 'cinematic' ? '#F5F3EC' : 'white', textAlign: 'center',
+      letterSpacing: `${box.letterSpacing}px`, color: box.layoutVersion === 'organic-v2' ? box.palette!.base : box.variant === 'cinematic' ? '#F5F3EC' : 'white', textAlign: 'center',
       whiteSpace: 'pre', overflow: 'visible', isolation: 'isolate', WebkitTextStroke: `${box.strokeWidth}px ${box.strokeColor}`, paintOrder: 'stroke fill',
       textShadow: `${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.color}`,
     }}>
@@ -1440,9 +1449,23 @@ function OrganicText({clip, parentStyle}: {clip: RenderClip; parentStyle: React.
         borderRadius: panel.borderRadius, background: panel.color, zIndex: -1}} />}
       {box.lines.map((line: string, lineIndex: number) => {
         const emphasisIndex = box.emphasis ? line.indexOf(box.emphasis) : -1;
-        return <div key={lineIndex} style={{height: box.fontSize * box.lineHeight, whiteSpace: 'pre'}}>
+        if (box.layoutVersion !== 'organic-v2') return <div key={lineIndex} style={{height: box.fontSize * box.lineHeight, whiteSpace: 'pre'}}>
           {emphasisIndex < 0 ? line : <>{line.slice(0, emphasisIndex)}<span style={{...motion.emphasis, color: accent}}>{box.emphasis}</span>{line.slice(emphasisIndex + box.emphasis.length)}</>}
         </div>;
+        const characters = [...line];
+        const spans = box.emphasisSpans!.filter(span=>span.line===lineIndex).sort((a,b)=>a.start-b.start);
+        const parts: React.ReactNode[] = [];
+        let cursor = 0;
+        for (const span of spans) {
+          parts.push(characters.slice(cursor,span.start).join(''));
+          const state = organicEmphasisState(box,span,frame);
+          parts.push(<span key={`${span.start}:${span.end}`} data-semantic-active={state.active} style={{display:'inline-block', transform:state.transform, color:state.color}}>{span.text}</span>);
+          cursor = span.end;
+        }
+        parts.push(characters.slice(cursor).join(''));
+        const fill = box.fill;
+        return <div key={lineIndex} style={{height:box.fontSize*box.lineHeight,whiteSpace:'pre',
+          ...(fill ? {backgroundImage:`linear-gradient(${fill.angle}deg, ${fill.colors.join(', ')})`,backgroundClip:'text',WebkitBackgroundClip:'text',color:'transparent'} : {})}}>{parts}</div>;
       })}
     </div>
   </AbsoluteFill>;
@@ -1532,7 +1555,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
     );
   }
 
-  if ((clip.trackKind === 'title' || clip.trackKind === 'caption') && !isVisualAsset && clip.attributes?.text_profile === ORGANIC_TEXT_PROFILE) {
+  if ((clip.trackKind === 'title' || clip.trackKind === 'caption') && !isVisualAsset && isOrganicTextProfile(clip.attributes?.text_profile)) {
     return <OrganicText clip={clip} parentStyle={transformStyle} />;
   }
 
@@ -1772,7 +1795,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
     return (
       <AbsoluteFill style={{ background: 'oklch(20% 0.02 240)', opacity: transformStyle.opacity ?? 1 }}>
         <span style={placeholderText}>{clip.textContent ?? ''}</span>
-        {effectOverlays(clip, frame, durationInFrames)}
+        {effectOverlays(clip, frame, durationInFrames, fps)}
       </AbsoluteFill>
     );
   }
@@ -1830,7 +1853,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
       ) : (
         media
       )}
-      {effectOverlays(clip, frame, durationInFrames)}
+      {effectOverlays(clip, frame, durationInFrames, fps)}
     </AbsoluteFill>
   );
 }
@@ -1844,7 +1867,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
 // don't overlap are returned UNCHANGED (byte-stable — no Phase-13 regression).
 function resolveCaptionOverlaps(clips: RenderClip[]): RenderClip[] {
   const captions = clips
-    .filter((c) => c.trackKind === 'caption' && c.attributes?.text_profile !== UGC_TEXT_PROFILE && c.attributes?.text_profile !== ORGANIC_TEXT_PROFILE && c.assetKind !== 'image' && c.assetKind !== 'video' && c.assetKind !== 'audio')
+    .filter((c) => c.trackKind === 'caption' && c.attributes?.text_profile !== UGC_TEXT_PROFILE && !isOrganicTextProfile(c.attributes?.text_profile) && c.assetKind !== 'image' && c.assetKind !== 'video' && c.assetKind !== 'audio')
     .sort((a, b) => a.startMs - b.startMs || String(a.id).localeCompare(String(b.id)));
   if (captions.length < 2) return clips;
   // E7C: GUARANTEE exactly one caption at any instant. The old version only
@@ -1901,7 +1924,7 @@ function clampHeadlineTitleToHook(clips: RenderClip[]): RenderClip[] {
   if (hookEndMs <= 0) return clips;
   let changed = false;
   const out = clips.map((c) => {
-    if (c.trackKind !== 'title' || c.attributes?.text_profile === UGC_TEXT_PROFILE || c.attributes?.text_profile === ORGANIC_TEXT_PROFILE) return c;
+    if (c.trackKind !== 'title' || c.attributes?.text_profile === UGC_TEXT_PROFILE || isOrganicTextProfile(c.attributes?.text_profile)) return c;
     if ((c.effects ?? []).some((e) => e.kind === 'watermark')) return c; // watermark spans by design
     const end = c.startMs + c.durationMs;
     if (c.startMs > 50 || end <= hookEndMs + 50) return c; // not the always-on headline
