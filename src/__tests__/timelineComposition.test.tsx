@@ -446,11 +446,16 @@ describe('TimelineCompositionV2 exhaustive contracts', () => {
       { keyframes: [{ property: 'opacity', timeMs: 0, value: .8 }] },
     ] as Partial<RenderClip>[]) {
       const clip=makeClip({url:'fixture.png',durationMs:2500,...patch});
-      const snapshots=[0,7,36,38,39,47,74].map(frame=>{
-        const element=__testing.VisualClipRenderer({clip,runtime:makeRuntime({frame,scale:1.42,y:-.42}) as never,voiceWindows:[]});
-        return element.props.style;
-      });
-      expect(snapshots.every(style=>style.transform===snapshots[0].transform&&style.opacity===snapshots[0].opacity)).toBe(true);
+      for (const crop of [{scale:1,x:0,y:0},{scale:1.42,x:0,y:-.42}]) {
+        const sceneType=__testing.resolveSceneType(clip);
+        const sceneLayer=__testing.resolveSceneLayer(clip,sceneType);
+        const snapshots=[0,7,36,38,39,47,74].map(frame=>{
+          const runtime=makeRuntime({...crop,frame,durationInFrames:75,sceneType,sceneLayer});
+          const element=__testing.VisualClipRenderer({clip,runtime:runtime as never,voiceWindows:[]});
+          return element.props.style;
+        });
+        expect(snapshots.every(style=>style.transform===snapshots[0].transform&&style.opacity===snapshots[0].opacity)).toBe(true);
+      }
     }
   });
 
