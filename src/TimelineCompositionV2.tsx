@@ -33,8 +33,6 @@ import { CAPTION_DEFAULTS, resolveCaptionLagMs, resolveCaptionHoldMs } from '@hi
 // Cinematic-edit primitives (founder 2026-06-15 visual strategy), all deterministic.
 import { FilmGrain } from './effects/filmGrain';
 import { LightLeak } from './effects/lightLeak';
-import { slidePanEntrance, pickDirection } from './effects/slidePan';
-import { punchInTransform } from './effects/punchIn';
 // visual_editor 2026-06-16 — per-beat cinematic accents (all deterministic, preview==render).
 import { chromaticSplitFilter } from './effects/chromaticSplit';
 import { speedRampStyle } from './effects/speedRamp';
@@ -124,64 +122,6 @@ function clipHash(id = ''): number {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return hash;
-}
-
-function kenBurnsTransform(frame: number, durationInFrames: number, clipId: string): { scale: number; x: number; y: number } {
-  const progress = interpolate(frame, [0, durationInFrames], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const hash = clipHash(clipId);
-  const direction = hash % 4;
-  const pan = interpolate(progress, [0, 1], [-1.8, 1.8], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  // 2026-07-09 founder "전 컷이 동일하게 뾱 들어간다": 줌이 항상 1.0→1.07 push-in 단일이라
-  // 팬 축만 달라도 리듬이 죽는다. subshotKenBurns처럼 해시로 스타일 교대 —
-  // 0=줌인, 1=줌아웃, 2=홀드(고정 1.04 + 팬 드리프트만). 순수 프레임 수학 ⇒ preview==render.
-  const style = (hash >> 2) % 3;
-  const scale = style === 0
-    ? interpolate(progress, [0, 1], [1.0, 1.06], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-    : style === 1
-      ? interpolate(progress, [0, 1], [1.06, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-      : 1.04;
-  return {
-    scale,
-    x: direction === 0 ? pan : direction === 1 ? -pan : 0,
-    y: direction === 2 ? pan : direction === 3 ? -pan : 0,
-  };
-}
-
-// B-SHOT3: gentle drift for B-SHOT2 sub-shots. A sub-shot is a STATIC reframe
-// (transforms.scale != 1) of a held beat image, so the normal ken-burns is off
-// (hasManualFraming). Without motion each ~2.75s reframe is a frozen crop. This
-// adds a subtle ADDITIVE breath ON TOP of the base reframe: a slow ~3.5% zoom
-// (in or out, alternating by key so consecutive sub-shots don't all push the same
-// way) plus a ≤0.8% pan. Returned scale MULTIPLIES the base reframe scale and the
-// x/y ADD to the base framing offset (same contract as kenBurnsTransform). Pure
-// frame math ⇒ deterministic, preview==render. Gentler than kenBurnsTransform
-// (1.07 + 1.8% pan) because the image is already cropped/zoomed by the reframe.
-function subshotKenBurns(frame: number, durationInFrames: number, key: string): { scale: number; x: number; y: number } {
-  const progress = interpolate(frame, [0, durationInFrames], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const hash = clipHash(key);
-  const direction = hash % 4;
-  const pan = interpolate(progress, [0, 1], [-0.8, 0.8], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const zoomIn = (hash >> 2) % 2 === 0;
-  const scale = zoomIn
-    ? interpolate(progress, [0, 1], [1.0, 1.035], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-    : interpolate(progress, [0, 1], [1.035, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  return {
-    scale,
-    x: direction === 0 ? pan : direction === 1 ? -pan : 0,
-    y: direction === 2 ? pan : direction === 3 ? -pan : 0,
-  };
 }
 
 function effectByKind(clip: RenderClip, kind: string) {
@@ -1590,49 +1530,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   if (inProofCutaway && isNarratorVisual && !isProofHero) {
     return null;
   }
-  // Manual framing wins over ambience: once the human sets an explicit scale or a
-  // fit mode, the automatic ken-burns drift would fight their exact framing — turn
-  // it off for that clip. Untouched clips (scale 1, no fit) keep the drift as before.
   const fitAttr = String(clipAttributes(clip).fit ?? '').toLowerCase();
-  const hasManualFraming = scale !== 1 || fitAttr === 'contain' || fitAttr === 'cover' || x !== 0 || y !== 0;
-  // Use beat position to vary ken-burns direction for consecutive narrator beats.
-  // When narrator reuses the same image artifact across 3+ beats, clip.id is
-  // identical → kenBurnsTransform returns the same direction every time.
-  // narrator_beat_index (stamped by composer_v2.py) makes the key unique per beat.
-  // Legacy fallback: absent field (-1) → original clip.id behavior, byte-identical.
-  const narratorBeatIndex = Number(clipAttributes(clip).narrator_beat_index ?? -1);
-  const motionClipId = hasSubImages && activeSubIdx > 0
-    ? `${clip.id}_beat_${narratorBeatIndex}_sub_${activeSubIdx}`
-    : narratorBeatIndex >= 0
-      ? `${clip.id}_beat_${narratorBeatIndex}`
-      : clip.id;
-  // B-SHOT3: a B-SHOT2 sub-shot (transforms.scale != 1, stamped subshot_count>1) is a
-  // STATIC reframe that would otherwise freeze (hasManualFraming). Give it a gentle
-  // additive breath instead — keyed by sub-shot index so each crop drifts differently.
-  // Genuine HUMAN manual framing (no subshot_count) still freezes, as the human intended.
-  const subshotCount = Number(clipAttributes(clip).subshot_count ?? 0);
-  const isSubshot = subshotCount > 1;
-  // U-M1-EDIT-PACING: re-key Ken-Burns so each sub-image window starts from
-  // frame 0 of its own 800ms window instead of the clip's global frame count.
-  // Without this, all sub-images share the same mid-range progress value and
-  // the "pan direction" doesn't reset — looping rather than cutting.
-  const subDurationInFrames = Math.max(1, Math.round((SUBBEAT_MAX_MS * fps) / 1000));
-  const frameIntoActiveSub = hasSubImages
-    ? Math.max(0, frame - activeSubIdx * subDurationInFrames)
-    : frame;
-
-  // 2026-07-10 founder "비트마다 기계식 줌 1회": 모션 계획(keyframes)이 있으면 블랭킷
-  // 켄번스를 끈다 — keyframes가 모션의 단일 권위, 켄번스는 계획 없는 레거시 클립 폴백으로 강등.
-  const hasMotionKf = (clip.keyframes ?? []).some((k) => k.property === 'scale' || k.property === 'x' || k.property === 'y');
-  const kb = isVideo || proofFrame || hasMotionKf || effectByKind(clip, 'ken-burns')
-    ? { scale: 1, x: 0, y: 0 }
-    : isSubshot
-      ? subshotKenBurns(frame, durationInFrames, `${motionClipId}_ss_${Number(clipAttributes(clip).subshot_index ?? 0)}`)
-      : hasManualFraming
-        ? { scale: 1, x: 0, y: 0 }
-        : hasSubImages
-          ? kenBurnsTransform(frameIntoActiveSub, subDurationInFrames, motionClipId)
-          : kenBurnsTransform(frame, durationInFrames, motionClipId);
   // BLACK-BEAT FIX (2026-06-17 ViewOK antifog): a social_proof beat's proof image is the
   // CENTERPIECE and must fill the frame. It is tagged scene_layer='narrator' (so the
   // SCENE_TEMPLATES['product'] pip-right rule would shrink it to a tiny bottom-right card)
@@ -1693,32 +1591,11 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
   if (!optOutZoom && explicitSubjectZoom >= 1.2) {
     mediaCropScale = Math.max(1, explicitSubjectZoom / Math.max(effectiveScale, 1));
   }
-  // Cinematic motion (founder 2026-06-15, Rule-of-One): B-roll visuals SLIDE in
-  // (directional, motion-blurred entrance), full talking-head shots get a subtle PUNCH-IN
-  // emphasis. Either is layered over the ambient ken-burns drift — one entrance + one drift,
-  // never a "Christmas tree". Both deterministic.
-  const motionSeed = narratorBeatIndex >= 0 ? narratorBeatIndex * 7 : Math.round(clip.startMs / 400);
-  const isTalkingHead = isNarratorVisual && !pipStyle;
-  const pan = isVisualAsset && !isTalkingHead && !isProofHero && !hasMotionKf
-    ? slidePanEntrance(frame, fps, pickDirection(motionSeed), { frames: 8 })
-    : null;
-  // 2026-07-10 founder "1초 지나고 두근": 발화 컷 무조건 punch-in(0.5s 지점 1.09 팝)이
-  // 모션 계획과 무관하게 얹히던 하드코딩 — keyframes(모션 권위) 있으면 끈다. 입장 팬도 동일.
-  const punch = isTalkingHead && !hasMotionKf
-    ? ` ${punchInTransform(frame, fps, durationInFrames, { at: 0.5, zoom: 1.09, settle: 1.04 })}`
-    : '';
+  // Spatial motion is authored only: empty keyframes/effects preserve the
+  // original framing in both Studio preview and the final render.
   const visualStyle: React.CSSProperties = {
     ...transformStyle,
-    transform: `${pan ? pan.transform + ' ' : ''}translate(${x * 50 + kb.x}%, ${y * 50 + kb.y}%) scale(${effectiveScale * kb.scale}) rotate(${rotation}deg)${effects.transform}${punch}`,
-    // MERGE the entrance motion-blur with any effect-driven filter (chromatic-split,
-    // look, adjust, glow). The old `pan?.filter ?? …` DROPPED the effect filter whenever
-    // a B-roll clip also had a slide-pan entrance (pan.filter is 'blur(0px)' for most of
-    // the clip), so those effects silently no-op'd on B-roll. Clips without an effect
-    // filter keep transformStyle.filter undefined ⇒ result is just pan.filter (byte-stable).
-    filter: pan
-      ? [pan.filter, (transformStyle as React.CSSProperties).filter].filter(Boolean).join(' ')
-      : (transformStyle as React.CSSProperties).filter,
-    opacity: opacity * effects.opacity * Number(pan?.opacity ?? 1),
+    transform: `translate(${x * 50}%, ${y * 50}%) scale(${effectiveScale}) rotate(${rotation}deg)${effects.transform}`,
     width: '100%',
     height: '100%',
     overflow: 'hidden',
