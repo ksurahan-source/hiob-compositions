@@ -30,8 +30,6 @@ import { CAPTION_DEFAULTS, resolveCaptionLagMs, resolveCaptionHoldMs } from '@hi
 // Cinematic-edit primitives (founder 2026-06-15 visual strategy), all deterministic.
 import { FilmGrain } from './effects/filmGrain';
 import { LightLeak } from './effects/lightLeak';
-import { slidePanEntrance, pickDirection } from './effects/slidePan';
-import { punchInTransform } from './effects/punchIn';
 // visual_editor 2026-06-16 — per-beat cinematic accents (all deterministic, preview==render).
 import { chromaticSplitFilter } from './effects/chromaticSplit';
 import { speedRampStyle } from './effects/speedRamp';
@@ -110,64 +108,6 @@ function clipHash(id = ''): number {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return hash;
-}
-
-function kenBurnsTransform(frame: number, durationInFrames: number, clipId: string): { scale: number; x: number; y: number } {
-  const progress = interpolate(frame, [0, durationInFrames], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const hash = clipHash(clipId);
-  const direction = hash % 4;
-  const pan = interpolate(progress, [0, 1], [-1.8, 1.8], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  // 2026-07-09 founder "전 컷이 동일하게 뾱 들어간다": 줌이 항상 1.0→1.07 push-in 단일이라
-  // 팬 축만 달라도 리듬이 죽는다. subshotKenBurns처럼 해시로 스타일 교대 —
-  // 0=줌인, 1=줌아웃, 2=홀드(고정 1.04 + 팬 드리프트만). 순수 프레임 수학 ⇒ preview==render.
-  const style = (hash >> 2) % 3;
-  const scale = style === 0
-    ? interpolate(progress, [0, 1], [1.0, 1.06], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-    : style === 1
-      ? interpolate(progress, [0, 1], [1.06, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-      : 1.04;
-  return {
-    scale,
-    x: direction === 0 ? pan : direction === 1 ? -pan : 0,
-    y: direction === 2 ? pan : direction === 3 ? -pan : 0,
-  };
-}
-
-// B-SHOT3: gentle drift for B-SHOT2 sub-shots. A sub-shot is a STATIC reframe
-// (transforms.scale != 1) of a held beat image, so the normal ken-burns is off
-// (hasManualFraming). Without motion each ~2.75s reframe is a frozen crop. This
-// adds a subtle ADDITIVE breath ON TOP of the base reframe: a slow ~3.5% zoom
-// (in or out, alternating by key so consecutive sub-shots don't all push the same
-// way) plus a ≤0.8% pan. Returned scale MULTIPLIES the base reframe scale and the
-// x/y ADD to the base framing offset (same contract as kenBurnsTransform). Pure
-// frame math ⇒ deterministic, preview==render. Gentler than kenBurnsTransform
-// (1.07 + 1.8% pan) because the image is already cropped/zoomed by the reframe.
-function subshotKenBurns(frame: number, durationInFrames: number, key: string): { scale: number; x: number; y: number } {
-  const progress = interpolate(frame, [0, durationInFrames], [0, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const hash = clipHash(key);
-  const direction = hash % 4;
-  const pan = interpolate(progress, [0, 1], [-0.8, 0.8], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const zoomIn = (hash >> 2) % 2 === 0;
-  const scale = zoomIn
-    ? interpolate(progress, [0, 1], [1.0, 1.035], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
-    : interpolate(progress, [0, 1], [1.035, 1.0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  return {
-    scale,
-    x: direction === 0 ? pan : direction === 1 ? -pan : 0,
-    y: direction === 2 ? pan : direction === 3 ? -pan : 0,
-  };
 }
 
 function effectByKind(clip: RenderClip, kind: string) {
@@ -1720,55 +1660,6 @@ function resolveSubImageState(clip: RenderClip, isVideo: boolean, frame: number,
   };
 }
 
-function hasMotionKeyframes(clip: RenderClip): boolean {
-  return (clip.keyframes ?? []).some((keyframe) => (
-    keyframe.property === 'scale' || keyframe.property === 'x' || keyframe.property === 'y'
-  ));
-}
-
-function resolveMotionClipId(clip: RenderClip, subImages: SubImageState, narratorBeatIndex: number): string {
-  if (subImages.hasMultiple && subImages.activeIndex > 0) {
-    return `${clip.id}_beat_${narratorBeatIndex}_sub_${subImages.activeIndex}`;
-  }
-  if (narratorBeatIndex >= 0) return `${clip.id}_beat_${narratorBeatIndex}`;
-  return clip.id;
-}
-
-interface AmbientMotion {
-  scale: number;
-  x: number;
-  y: number;
-}
-
-const IDENTITY_MOTION: AmbientMotion = { scale: 1, x: 0, y: 0 };
-
-function resolveAmbientMotion(
-  clip: RenderClip,
-  runtime: ClipRuntime,
-  isVideo: boolean,
-  subImages: SubImageState,
-  fit: string,
-  narratorBeatIndex: number,
-  motionKeyframes: boolean,
-): AmbientMotion {
-  if (isVideo || motionKeyframes || effectByKind(clip, 'ken-burns')) return IDENTITY_MOTION;
-  const manuallyFramed = runtime.scale !== 1
-    || fit === 'contain'
-    || fit === 'cover'
-    || runtime.x !== 0
-    || runtime.y !== 0;
-  const motionId = resolveMotionClipId(clip, subImages, narratorBeatIndex);
-  if (Number(clipAttributes(clip).subshot_count ?? 0) > 1) {
-    const index = Number(clipAttributes(clip).subshot_index ?? 0);
-    return subshotKenBurns(runtime.frame, runtime.durationInFrames, `${motionId}_ss_${index}`);
-  }
-  if (manuallyFramed) return IDENTITY_MOTION;
-  if (subImages.hasMultiple) {
-    return kenBurnsTransform(subImages.localFrame, subImages.durationInFrames, motionId);
-  }
-  return kenBurnsTransform(runtime.frame, runtime.durationInFrames, motionId);
-}
-
 const TALKING_HEAD_MODES = new Set(['persona', 'kol_narrator', 'avatar', 'talking_head']);
 const POSTAGE_STAMP_MODES = new Set([
   'situation_pov',
@@ -1805,24 +1696,11 @@ function resolveCropPolicy(clip: RenderClip, runtime: ClipRuntime, isVideo: bool
   return { effectiveScale, mediaScale, forceCover };
 }
 
-function combineVisualFilter(pan: ReturnType<typeof slidePanEntrance> | null, transformStyle: React.CSSProperties): string | undefined {
-  if (!pan) return transformStyle.filter;
-  return [pan.filter, transformStyle.filter].filter(Boolean).join(' ');
-}
-
-function buildVisualStyle(
-  runtime: ClipRuntime,
-  motion: AmbientMotion,
-  crop: CropPolicy,
-  pan: ReturnType<typeof slidePanEntrance> | null,
-  punch: string,
-): React.CSSProperties {
-  const panTransform = pan ? `${pan.transform} ` : '';
+// Empty spatial keyframes/effects preserve the authored crop in every frame.
+function buildVisualStyle(runtime: ClipRuntime, crop: CropPolicy): React.CSSProperties {
   return {
     ...runtime.transformStyle,
-    transform: `${panTransform}translate(${runtime.x * 50 + motion.x}%, ${runtime.y * 50 + motion.y}%) scale(${crop.effectiveScale * motion.scale}) rotate(${runtime.rotation}deg)${runtime.effects.transform}${punch}`,
-    filter: combineVisualFilter(pan, runtime.transformStyle),
-    opacity: runtime.opacity * runtime.effects.opacity * paramNumber(pan?.opacity, 1),
+    transform: `translate(${runtime.x * 50}%, ${runtime.y * 50}%) scale(${crop.effectiveScale}) rotate(${runtime.rotation}deg)${runtime.effects.transform}`,
     width: '100%',
     height: '100%',
     overflow: 'hidden',
@@ -1926,29 +1804,9 @@ function VisualMedia({
 function VisualClipRenderer({ clip, runtime, mix, voiceWindows }: { clip: RenderClip; runtime: ClipRuntime; mix?: RenderProps['mix']; voiceWindows: VoiceWindow[] }) {
   const isVideo = clipIsVideo(clip);
   const subImages = resolveSubImageState(clip, isVideo, runtime.frame, runtime.fps);
-  const isNarratorVisual = runtime.sceneLayer === 'narrator'
-    && (runtime.isVisualAsset || clip.trackKind === 'video' || clip.trackKind === 'overlay');
   const fit = String(clipAttributes(clip).fit ?? '').toLowerCase();
-  const narratorBeatIndex = Number(clipAttributes(clip).narrator_beat_index ?? -1);
-  const motionKeyframes = hasMotionKeyframes(clip);
-  const motion = resolveAmbientMotion(
-    clip,
-    runtime,
-    isVideo,
-    subImages,
-    fit,
-    narratorBeatIndex,
-    motionKeyframes,
-  );
   const crop = resolveCropPolicy(clip, runtime, isVideo);
-  const motionSeed = narratorBeatIndex >= 0 ? narratorBeatIndex * 7 : Math.round(clip.startMs / 400);
-  const pan = runtime.isVisualAsset && !isNarratorVisual && !motionKeyframes
-    ? slidePanEntrance(runtime.frame, runtime.fps, pickDirection(motionSeed), { frames: 8 })
-    : null;
-  const punch = isNarratorVisual && !motionKeyframes
-    ? ' ' + punchInTransform(runtime.frame, runtime.fps, runtime.durationInFrames, { at: 0.5, zoom: 1.09, settle: 1.04 })
-    : '';
-  const visualStyle = buildVisualStyle(runtime, motion, crop, pan, punch);
+  const visualStyle = buildVisualStyle(runtime, crop);
   const mediaPlan = resolveMediaStyle(clip, crop, fit);
 
   if (!clip.url) return <MissingVisual clip={clip} runtime={runtime} />;
@@ -2391,8 +2249,6 @@ export const __testing = {
   msToStartFrame,
   msToDurationFrames,
   clipHash,
-  kenBurnsTransform,
-  subshotKenBurns,
   effectByKind,
   clipAttributes,
   normalizeSceneType,
@@ -2439,11 +2295,7 @@ export const __testing = {
   ClipRenderer,
   clipIsVideo,
   resolveSubImageState,
-  hasMotionKeyframes,
-  resolveMotionClipId,
-  resolveAmbientMotion,
   resolveCropPolicy,
-  combineVisualFilter,
   buildVisualStyle,
   resolveMediaStyle,
   MissingVisual,

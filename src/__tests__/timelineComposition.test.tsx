@@ -125,11 +125,6 @@ describe('TimelineCompositionV2 deterministic helpers', () => {
     expect(__testing.clipHash()).toBe(0);
     expect(__testing.clipHash('abc')).toBeGreaterThan(0);
 
-    for (let index = 0; index < 100; index += 1) {
-      expect(__testing.kenBurnsTransform(15, 30, `clip-${index}`).scale).toBeGreaterThan(0);
-      expect(__testing.subshotKenBurns(15, 30, `sub-${index}`).scale).toBeGreaterThan(0);
-    }
-
     const explicit = makeClip({
       attributes: { scene_type: ' CTA ', scene_layer: 'background' } as unknown as RenderClip['attributes'],
     });
@@ -441,6 +436,24 @@ describe('TimelineCompositionV2 exhaustive contracts', () => {
     renderNode(React.createElement(__testing.CaptionClipRenderer, { clip: makeClip({ trackKind: 'caption', assetKind: undefined, textContent: 'caption', effects: [makeEffect('watermark')] }), runtime: visualRuntime } as never));
   });
 
+  test('unanimated images, video, subshots and manual crops stay static across the midpoint', () => {
+    for (const patch of [
+      {}, { assetKind: 'video', url: 'fixture.mp4' },
+      { attributes: { scene_type: 'hook' } },
+      { attributes: { subshot_count: 3, subshot_index: 1 } },
+      { attributes: { fit: 'cover' } }, { attributes: { fit: 'contain' } },
+      { keyframes: [{ property: 'rotation', timeMs: 0, value: 5 }] },
+      { keyframes: [{ property: 'opacity', timeMs: 0, value: .8 }] },
+    ] as Partial<RenderClip>[]) {
+      const clip=makeClip({url:'fixture.png',durationMs:2500,...patch});
+      const snapshots=[0,7,36,38,39,47,74].map(frame=>{
+        const element=__testing.VisualClipRenderer({clip,runtime:makeRuntime({frame,scale:1.42,y:-.42}) as never,voiceWindows:[]});
+        return element.props.style;
+      });
+      expect(snapshots.every(style=>style.transform===snapshots[0].transform&&style.opacity===snapshots[0].opacity)).toBe(true);
+    }
+  });
+
   test('covers sub-images, motion, crop, media, and missing visuals', () => {
     expect(__testing.clipIsVideo(makeClip({ assetKind: 'video', url: undefined }))).toBe(true);
     expect(__testing.clipIsVideo(makeClip({ assetKind: 'image', url: 'x.webm?q=1' }))).toBe(true);
@@ -451,32 +464,7 @@ describe('TimelineCompositionV2 exhaustive contracts', () => {
     expect(none.hasMultiple).toBe(false);
     expect(multiple.hasMultiple).toBe(true);
     expect(videoSubs.hasMultiple).toBe(false);
-    expect(__testing.hasMotionKeyframes(makeClip({ keyframes: undefined }))).toBe(false);
-    expect(__testing.hasMotionKeyframes(makeClip({ keyframes: [{ property: 'opacity', timeMs: 0, value: 1 }] }))).toBe(false);
-    for (const property of ['scale', 'x', 'y'] as const) {
-      expect(__testing.hasMotionKeyframes(makeClip({ keyframes: [{ property, timeMs: 0, value: 1 }] }))).toBe(true);
-    }
-    expect(__testing.resolveMotionClipId(makeClip({ id: 'a' }), { ...multiple, activeIndex: 1 } as never, 2)).toContain('_sub_1');
-    expect(__testing.resolveMotionClipId(makeClip({ id: 'a' }), none as never, 2)).toBe('a_beat_2');
-    expect(__testing.resolveMotionClipId(makeClip({ id: 'a' }), none as never, -1)).toBe('a');
-
     const baseRuntime = makeRuntime();
-    expect(__testing.resolveAmbientMotion(makeClip(), baseRuntime as never, true, none as never, '', -1, false)).toEqual({ scale: 1, x: 0, y: 0 });
-    expect(__testing.resolveAmbientMotion(makeClip(), baseRuntime as never, false, none as never, '', -1, true)).toEqual({ scale: 1, x: 0, y: 0 });
-    expect(__testing.resolveAmbientMotion(makeClip({ effects: [makeEffect('ken-burns')] }), baseRuntime as never, false, none as never, '', -1, false)).toEqual({ scale: 1, x: 0, y: 0 });
-    expect(__testing.resolveAmbientMotion(makeClip({ attributes: { subshot_count: 2 } }), baseRuntime as never, false, none as never, '', -1, false).scale).toBeGreaterThan(0);
-    for (const args of [
-      [makeRuntime({ scale: 2 }), ''],
-      [baseRuntime, 'contain'],
-      [baseRuntime, 'cover'],
-      [makeRuntime({ x: 1 }), ''],
-      [makeRuntime({ y: 1 }), ''],
-    ] as const) {
-      expect(__testing.resolveAmbientMotion(makeClip(), args[0] as never, false, none as never, args[1], -1, false)).toEqual({ scale: 1, x: 0, y: 0 });
-    }
-    expect(__testing.resolveAmbientMotion(makeClip(), baseRuntime as never, false, multiple as never, '', 1, false).scale).toBeGreaterThan(0);
-    expect(__testing.resolveAmbientMotion(makeClip(), baseRuntime as never, false, none as never, '', -1, false).scale).toBeGreaterThan(0);
-
     const cropCases = [
       __testing.resolveCropPolicy(makeClip({ attributes: { render_mode: 'product_solo' } }), makeRuntime({ scale: 0.5 }) as never, false),
       __testing.resolveCropPolicy(makeClip({ attributes: { provider: 'seedream-4', subject_zoom: 2 } }), baseRuntime as never, false),
@@ -487,10 +475,7 @@ describe('TimelineCompositionV2 exhaustive contracts', () => {
     ];
     expect(cropCases.some((crop) => crop.forceCover)).toBe(true);
     expect(cropCases.some((crop) => crop.mediaScale > 1)).toBe(true);
-    expect(__testing.combineVisualFilter(null, { filter: 'contrast(1)' })).toBe('contrast(1)');
-    expect(__testing.combineVisualFilter({ filter: 'blur(1px)' } as never, {})).toBe('blur(1px)');
-    expect(__testing.buildVisualStyle(baseRuntime as never, { scale: 1, x: 0, y: 0 }, cropCases[0], null, '')).toHaveProperty('transform');
-    expect(__testing.buildVisualStyle(baseRuntime as never, { scale: 1, x: 0, y: 0 }, cropCases[0], { transform: 'translate(0)', filter: '', opacity: 0.5 } as never, ' scale(1)')).toHaveProperty('opacity');
+    expect(__testing.buildVisualStyle(baseRuntime as never, cropCases[0])).toHaveProperty('transform');
 
     const mediaPlans = [
       __testing.resolveMediaStyle(makeClip({ id: 'a!', attributes: { fit: 'contain', reframe: 'top' }, effects: [makeEffect('chroma-key', { similarity: 0.2 })] }), { effectiveScale: 1, mediaScale: 2, forceCover: false }, 'contain'),
