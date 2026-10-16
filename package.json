@@ -5,7 +5,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx"
+    "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx",
+    "./text-layout": "./src/lib/organicText.mjs"
   },
   "files": [
     "src"
@@ -20,7 +21,7 @@
     "remotion": "^4.0.0"
   },
   "scripts": {
-    "test:ugc": "node --experimental-strip-types --test src/__tests__/audioMix.test.ts src/__tests__/ugcText.test.ts",
+    "test:ugc": "node --experimental-strip-types --test src/__tests__/audioMix.test.ts src/__tests__/ugcText.test.ts src/__tests__/organicText.test.mjs",
     "typecheck": "tsc --noEmit --skipLibCheck --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 --allowImportingTsExtensions --esModuleInterop src/TimelineCompositionV2.tsx verification/ugc-v3/entry.tsx"
   },
   "devDependencies": {

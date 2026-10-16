@@ -19,12 +19,15 @@ import {
   interpolate,
   useCurrentFrame,
   useVideoConfig,
+  delayRender,
+  continueRender,
+  cancelRender,
 } from 'remotion';
 // Animated GIFs need <Gif> to stay frame-synced with the Remotion timeline — a plain
 // <Img> renders them frozen/erratic in the Lambda render (preview≠render breach).
 import { Gif } from '@remotion/gif';
 import type * as React from 'react';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 import type { RenderProps, RenderClip, CaptionType } from '@hiob/timeline';
 import { CAPTION_DEFAULTS, resolveCaptionLagMs, resolveCaptionHoldMs } from '@hiob/timeline';
 // Cinematic-edit primitives (founder 2026-06-15 visual strategy), all deterministic.
@@ -39,6 +42,7 @@ import { LightSweep } from './effects/lightSweep';
 import { EASING_FN } from './lib/easing';
 import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
 import { UGC_TEXT_PROFILE, ugcTextLayout, ugcTextMotion } from './lib/ugcText';
+import { ORGANIC_TEXT_PROFILE, assertOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics } from './lib/organicText.mjs';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -56,7 +60,8 @@ const FALLBACK_BG = 'oklch(14% 0.01 240)';
 const SUBBEAT_MAX_MS = 800; // EDIT-PACING: renderer advances to next sub-image every N ms
 // The loaded heavy display family (Black Han Sans) is locale-invariant; only the
 // fallback chain after it varies per locale (Phase 1 swaps Noto Sans TC/JP/...).
-const DISPLAY_FONT_FAMILY = loadCaptionFont().fontFamily;
+const DISPLAY_FONT = loadCaptionFont();
+const DISPLAY_FONT_FAMILY = DISPLAY_FONT.fontFamily;
 function captionFontFor(cfg: LocaleConfig): string {
   return `"${DISPLAY_FONT_FAMILY}", ${cfg.captionFontFallback}`;
 }
@@ -1373,6 +1378,76 @@ function Watermark({ clip, containerStyle }: { clip: RenderClip; containerStyle:
   );
 }
 
+/** The authored layout is printed verbatim. Font verification may reject it, never silently reflow it. */
+function OrganicText({clip, parentStyle}: {clip: RenderClip; parentStyle: React.CSSProperties}) {
+  const {fps} = useVideoConfig();
+  const frame = useCurrentFrame();
+  const rawStyle = clip.attributes?.text_style;
+  const box = useMemo(() => {
+    const style = assertOrganicTextLayout(rawStyle, clip.textContent ?? '');
+    validateOrganicTextLayout(style, {text: clip.textContent ?? '', startMs: clip.startMs, durationMs: clip.durationMs, fps, clip});
+    if (style.parentFrames && (parentStyle.filter || parentStyle.clipPath)) {
+      throw new Error('ORGANIC_TEXT_PARENT_UNSUPPORTED: Affine samples cannot verify parent filters or clipping.');
+    }
+    return style;
+  }, [rawStyle, clip.textContent, clip.startMs, clip.durationMs, fps, clip, parentStyle.filter, parentStyle.clipPath]);
+  const font = box.fontFamily === 'Noto Sans KR'
+    ? loadCinematicFont('normal', {weights: ['500'], subsets: ['korean', 'latin']})
+    : DISPLAY_FONT;
+  const fontGate = useMemo(() => delayRender('Verify authored organic text font metrics'), [box, font.fontFamily]);
+  useEffect(() => {
+    let active = true;
+    const verify = async () => {
+      try {
+        await font.waitUntilDone();
+        await document.fonts.load(`${box.fontWeight} ${box.fontSize}px "${font.fontFamily}"`, box.lines.join(' '));
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (!context || !document.fonts.check(`${box.fontWeight} ${box.fontSize}px "${font.fontFamily}"`, box.lines.join(' '))) {
+          throw new Error('ORGANIC_TEXT_FONT_UNAVAILABLE: The exact authored font must load before rendering.');
+        }
+        context.font = `${box.fontWeight} ${box.fontSize}px "${font.fontFamily}"`;
+        context.letterSpacing = `${box.letterSpacing}px`;
+        verifyOrganicTextMetrics(box, (text: string) => context.measureText(text));
+        if (active) continueRender(fontGate);
+      } catch (error) {
+        if (active) cancelRender(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    void verify();
+    return () => {active = false; continueRender(fontGate);};
+  }, [box, font.fontFamily, fontGate]);
+  const motion = ugcTextMotion(box.entrance, box.keywordMotion, frame, fps);
+  const matrix = box.parentFrames?.[frame];
+  const accent = box.variant === 'product' ? '#8EE6CE' : '#FFD65C';
+  const shadow = box.shadow;
+  const panel = box.background;
+  return <AbsoluteFill style={{
+    pointerEvents: 'none', transformOrigin: '0 0',
+    transform: matrix ? `matrix(${matrix.join(',')})` : undefined,
+    opacity: matrix ? parentStyle.opacity : 1,
+    mixBlendMode: parentStyle.mixBlendMode,
+  }}>
+    <div data-text-profile="organic-v1" data-measurement-id={box.measurementId} style={{
+      ...motion.container, position: 'absolute', left: box.x, top: box.y, width: box.width, height: box.height,
+      fontFamily: `"${font.fontFamily}"`, fontSize: box.fontSize, fontWeight: box.fontWeight, lineHeight: box.lineHeight,
+      letterSpacing: `${box.letterSpacing}px`, color: box.variant === 'cinematic' ? '#F5F3EC' : 'white', textAlign: 'center',
+      whiteSpace: 'pre', overflow: 'visible', isolation: 'isolate', WebkitTextStroke: `${box.strokeWidth}px ${box.strokeColor}`, paintOrder: 'stroke fill',
+      textShadow: `${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.color}`,
+    }}>
+      {panel && <div aria-hidden style={{position: 'absolute', left: -panel.paddingX, top: -panel.paddingY,
+        width: box.width + panel.paddingX * 2, height: box.height + panel.paddingY * 2,
+        borderRadius: panel.borderRadius, background: panel.color, zIndex: -1}} />}
+      {box.lines.map((line: string, lineIndex: number) => {
+        const emphasisIndex = box.emphasis ? line.indexOf(box.emphasis) : -1;
+        return <div key={lineIndex} style={{height: box.fontSize * box.lineHeight, whiteSpace: 'pre'}}>
+          {emphasisIndex < 0 ? line : <>{line.slice(0, emphasisIndex)}<span style={{...motion.emphasis, color: accent}}>{box.emphasis}</span>{line.slice(emphasisIndex + box.emphasis.length)}</>}
+        </div>;
+      })}
+    </div>
+  </AbsoluteFill>;
+}
+
 function UgcText({ clip }: { clip: RenderClip }) {
   const config = useContext(LocaleConfigContext);
   const box = ugcTextLayout(clip.trackKind, clip.attributes);
@@ -1455,6 +1530,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
         playbackRate={speed}
       />
     );
+  }
+
+  if ((clip.trackKind === 'title' || clip.trackKind === 'caption') && !isVisualAsset && clip.attributes?.text_profile === ORGANIC_TEXT_PROFILE) {
+    return <OrganicText clip={clip} parentStyle={transformStyle} />;
   }
 
   if ((clip.trackKind === 'title' || clip.trackKind === 'caption') && !isVisualAsset && clip.attributes?.text_profile === UGC_TEXT_PROFILE) {
@@ -1765,7 +1844,7 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
 // don't overlap are returned UNCHANGED (byte-stable — no Phase-13 regression).
 function resolveCaptionOverlaps(clips: RenderClip[]): RenderClip[] {
   const captions = clips
-    .filter((c) => c.trackKind === 'caption' && c.attributes?.text_profile !== UGC_TEXT_PROFILE && c.assetKind !== 'image' && c.assetKind !== 'video' && c.assetKind !== 'audio')
+    .filter((c) => c.trackKind === 'caption' && c.attributes?.text_profile !== UGC_TEXT_PROFILE && c.attributes?.text_profile !== ORGANIC_TEXT_PROFILE && c.assetKind !== 'image' && c.assetKind !== 'video' && c.assetKind !== 'audio')
     .sort((a, b) => a.startMs - b.startMs || String(a.id).localeCompare(String(b.id)));
   if (captions.length < 2) return clips;
   // E7C: GUARANTEE exactly one caption at any instant. The old version only
@@ -1822,7 +1901,7 @@ function clampHeadlineTitleToHook(clips: RenderClip[]): RenderClip[] {
   if (hookEndMs <= 0) return clips;
   let changed = false;
   const out = clips.map((c) => {
-    if (c.trackKind !== 'title' || c.attributes?.text_profile === UGC_TEXT_PROFILE) return c;
+    if (c.trackKind !== 'title' || c.attributes?.text_profile === UGC_TEXT_PROFILE || c.attributes?.text_profile === ORGANIC_TEXT_PROFILE) return c;
     if ((c.effects ?? []).some((e) => e.kind === 'watermark')) return c; // watermark spans by design
     const end = c.startMs + c.durationMs;
     if (c.startMs > 50 || end <= hookEndMs + 50) return c; // not the always-on headline

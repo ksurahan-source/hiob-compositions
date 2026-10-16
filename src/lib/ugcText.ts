@@ -1,4 +1,5 @@
 export const UGC_TEXT_PROFILE = 'ugc-v3';
+export { ugcTextMotion } from './organicText.mjs';
 export const UGC_SAFE_AREA = Object.freeze({ left: 90, top: 270, right: 918, bottom: 1248 });
 const finite = (value: unknown, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 export function ugcTextLayout(kind: string, attributes: Record<string, unknown> = {}) {
@@ -33,22 +34,4 @@ export function phraseGroups(text: string, maxChars = 10): string[] {
   const groups: string[] = [];
   for (let index = 0; index < lines.length; index += 2) groups.push(lines.slice(index, index + 2).join('\n'));
   return groups;
-}
-
-/** Clip-local and deterministic: the same frame styles drive preview and server. */
-export function ugcTextMotion(entrance: string, keyword: string, frame: number, fps: number) {
-  const seconds = Math.max(0, frame) / Math.max(1, fps);
-  const t = Math.min(1, seconds / .24);
-  const eased = 1 - Math.pow(1 - t, 3);
-  const container: {opacity: number; transform: string} = {opacity: 1, transform: ''};
-  if (entrance !== 'none') container.opacity = t;
-  if (entrance === 'rise') container.transform = `translateY(${(1-eased)*40}px)`;
-  if (entrance === 'slide-in') container.transform = `translateX(${(1-eased)*-60}px)`;
-  if (entrance === 'pop') container.transform = `scale(${.8+.2*eased})`;
-  if (entrance === 'bounce') container.transform = `scale(${1 - (1-t)*Math.cos(t*Math.PI*2)*.2})`;
-  const emphasis: {display: 'inline-block'; transform: string} = {display: 'inline-block', transform: ''};
-  if (keyword === 'pulse') emphasis.transform = `scale(${1 + .035*Math.sin(seconds*Math.PI*4)})`;
-  if (keyword === 'wave') emphasis.transform = `translateY(${3*Math.sin(seconds*Math.PI*3)}px)`;
-  if (keyword === 'glitch' && frame % 18 < 2) emphasis.transform = `translateX(${frame % 2 ? -2 : 2}px)`;
-  return {container, emphasis};
 }
