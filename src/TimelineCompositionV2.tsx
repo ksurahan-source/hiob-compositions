@@ -1599,7 +1599,6 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
     width: '100%',
     height: '100%',
     overflow: 'hidden',
-    ...(isNarratorVisual && pipStyle ? pipStyle : null),
   };
   // attributes.fit: 'contain' shows the WHOLE uploaded asset (letterboxed) instead of
   // the default cover-crop. Absent attribute ⇒ cover, byte-identical to before.
