@@ -1,0 +1,329 @@
+{
+  "sourceSha256": "4a30f19297c8218457fe88ea496a9d0c116be7d86b650961f4287a61223863d5",
+  "clips": [
+    {
+      "id": "34cda09e-c30d-407f-92f9-62cef361eba1",
+      "url": null,
+      "inMs": 0,
+      "zIndex": 4,
+      "effects": [],
+      "startMs": 0,
+      "assetKind": null,
+      "keyframes": [],
+      "trackKind": "title",
+      "durationMs": 2800,
+      "transforms": {
+        "x": 0,
+        "y": 0,
+        "scale": 1,
+        "opacity": 1,
+        "rotation": 0
+      },
+      "textContent": "마왕\n등장",
+      "attributes": {
+        "text_profile": "organic-v2",
+        "text_style": {
+          "x": 187,
+          "y": 300,
+          "fps": 30,
+          "fill": {
+            "kind": "linear",
+            "angle": 90,
+            "colors": [
+              "#FFFFFF",
+              "#BFA6FF"
+            ]
+          },
+          "lines": [
+            "마왕",
+            "등장"
+          ],
+          "width": 196,
+          "bounds": {
+            "top": 274.0486393253894,
+            "left": 158.32253482096087,
+            "right": 411.6774651790392,
+            "width": 253.35493035807832,
+            "bottom": 520.0881811621255,
+            "height": 246.03954183673608
+          },
+          "height": 190.08,
+          "motion": {
+            "exit": "fade-out",
+            "exitMs": 180,
+            "settle": 0.08,
+            "intensity": 0.8,
+            "entranceMs": 300
+          },
+          "shadow": {
+            "x": 0,
+            "y": 2,
+            "blur": 2,
+            "color": "rgba(0,0,0,0.65)"
+          },
+          "palette": {
+            "base": "#F4F6FC",
+            "alert": "#FFADBE",
+            "accent": "#BFA6FF",
+            "contrast": "#FFE078"
+          },
+          "startMs": 0,
+          "variant": "cinematic",
+          "emphasis": "",
+          "entrance": "pop",
+          "fontSize": 88,
+          "safeArea": {
+            "top": 270,
+            "left": 90,
+            "right": 918,
+            "bottom": 1248
+          },
+          "background": null,
+          "durationMs": 2800,
+          "fontFamily": "Black Han Sans",
+          "fontWeight": 400,
+          "lineHeight": 1.08,
+          "lineWidths": [
+            147.39999389648438,
+            147.135986328125
+          ],
+          "strokeColor": "#12151d",
+          "strokeWidth": 3,
+          "emphasisSpans": [
+            {
+              "end": 2,
+              "line": 0,
+              "text": "마왕",
+              "color": "accent",
+              "endMs": 1550,
+              "start": 0,
+              "motion": "pulse",
+              "startMs": 650,
+              "intensity": 0.78
+            }
+          ],
+          "keywordMotion": "none",
+          "layoutVersion": "organic-v2",
+          "letterSpacing": 0,
+          "measurementId": "native-canvas:ea906e7d67df0fb3e4c97b72738fdfcc83b2d0ce1c842a185f1518006827802f:d1978ff7-f4d1-439d-8536-4f309bc826a5"
+        }
+      }
+    },
+    {
+      "id": "e1b1cb91-46e6-4934-99a8-f9c9caa88a29",
+      "url": null,
+      "inMs": 0,
+      "zIndex": 4,
+      "effects": [],
+      "startMs": 23248,
+      "assetKind": null,
+      "keyframes": [],
+      "trackKind": "title",
+      "durationMs": 2800,
+      "transforms": {
+        "x": 0,
+        "y": 0,
+        "scale": 1,
+        "opacity": 1,
+        "rotation": 0
+      },
+      "textContent": "마음\n점령",
+      "attributes": {
+        "text_profile": "organic-v2",
+        "text_style": {
+          "x": 191,
+          "y": 300,
+          "fps": 30,
+          "fill": {
+            "kind": "linear",
+            "angle": 90,
+            "colors": [
+              "#FFFFFF",
+              "#FFE078"
+            ]
+          },
+          "lines": [
+            "마음",
+            "점령"
+          ],
+          "width": 188,
+          "bounds": {
+            "top": 283.568498645828,
+            "left": 172.07434490953847,
+            "right": 397.92565509046153,
+            "width": 225.85131018092306,
+            "bottom": 501.9283218416868,
+            "height": 218.35982319585878
+          },
+          "height": 181.44,
+          "motion": {
+            "exit": "fade-out",
+            "exitMs": 180,
+            "settle": 0.08,
+            "intensity": 0.8,
+            "entranceMs": 300
+          },
+          "shadow": {
+            "x": 0,
+            "y": 2,
+            "blur": 2,
+            "color": "rgba(0,0,0,0.65)"
+          },
+          "palette": {
+            "base": "#F4F6FC",
+            "alert": "#FFADBE",
+            "accent": "#FFE078",
+            "contrast": "#BFA6FF"
+          },
+          "startMs": 23248,
+          "variant": "cinematic",
+          "emphasis": "",
+          "entrance": "pop",
+          "fontSize": 84,
+          "safeArea": {
+            "top": 270,
+            "left": 90,
+            "right": 918,
+            "bottom": 1248
+          },
+          "background": null,
+          "durationMs": 2800,
+          "fontFamily": "Black Han Sans",
+          "fontWeight": 400,
+          "lineHeight": 1.08,
+          "lineWidths": [
+            140.95199584960938,
+            137.5079803466797
+          ],
+          "strokeColor": "#12151d",
+          "strokeWidth": 3,
+          "emphasisSpans": [
+            {
+              "end": 2,
+              "line": 1,
+              "text": "점령",
+              "color": "accent",
+              "endMs": 1550,
+              "start": 0,
+              "motion": "pulse",
+              "startMs": 200,
+              "intensity": 0.45
+            }
+          ],
+          "keywordMotion": "none",
+          "layoutVersion": "organic-v2",
+          "letterSpacing": 0,
+          "measurementId": "native-canvas:ea906e7d67df0fb3e4c97b72738fdfcc83b2d0ce1c842a185f1518006827802f:ec495b57-b2bd-43e3-a6c2-82cc6b0acfd2"
+        }
+      }
+    },
+    {
+      "id": "70f68c95-7792-43d2-afc9-675d777caaa0",
+      "url": null,
+      "inMs": 0,
+      "zIndex": 4,
+      "effects": [],
+      "startMs": 40603,
+      "assetKind": null,
+      "keyframes": [],
+      "trackKind": "title",
+      "durationMs": 6077,
+      "transforms": {
+        "x": 0,
+        "y": 0,
+        "scale": 1,
+        "opacity": 1,
+        "rotation": 0
+      },
+      "textContent": "마루를\n만나요",
+      "attributes": {
+        "text_profile": "organic-v2",
+        "text_style": {
+          "x": 162,
+          "y": 300,
+          "fps": 30,
+          "fill": {
+            "kind": "linear",
+            "angle": 90,
+            "colors": [
+              "#FFFFFF",
+              "#FFE078"
+            ]
+          },
+          "lines": [
+            "마루를",
+            "만나요"
+          ],
+          "width": 246,
+          "bounds": {
+            "top": 284.181916904285,
+            "left": 138.95649085971152,
+            "right": 431.0435091402885,
+            "width": 292.087018280577,
+            "bottom": 492.6749035832298,
+            "height": 208.49298667894482
+          },
+          "height": 172.8,
+          "motion": {
+            "exit": "fade-out",
+            "exitMs": 180,
+            "settle": 0.08,
+            "intensity": 0.8,
+            "entranceMs": 300
+          },
+          "shadow": {
+            "x": 0,
+            "y": 2,
+            "blur": 2,
+            "color": "rgba(0,0,0,0.65)"
+          },
+          "palette": {
+            "base": "#F4F6FC",
+            "alert": "#FFADBE",
+            "accent": "#FFE078",
+            "contrast": "#BFA6FF"
+          },
+          "startMs": 40603,
+          "variant": "cinematic",
+          "emphasis": "",
+          "entrance": "pop",
+          "fontSize": 80,
+          "safeArea": {
+            "top": 270,
+            "left": 90,
+            "right": 918,
+            "bottom": 1248
+          },
+          "background": null,
+          "durationMs": 6077,
+          "fontFamily": "Black Han Sans",
+          "fontWeight": 400,
+          "lineHeight": 1.08,
+          "lineWidths": [
+            201.83998107910156,
+            200.95999145507812
+          ],
+          "strokeColor": "#12151d",
+          "strokeWidth": 3,
+          "emphasisSpans": [
+            {
+              "end": 3,
+              "line": 0,
+              "text": "마루를",
+              "color": "accent",
+              "endMs": 1550,
+              "start": 0,
+              "motion": "pulse",
+              "startMs": 200,
+              "intensity": 0.45
+            }
+          ],
+          "keywordMotion": "none",
+          "layoutVersion": "organic-v2",
+          "letterSpacing": 0,
+          "measurementId": "native-canvas:ea906e7d67df0fb3e4c97b72738fdfcc83b2d0ce1c842a185f1518006827802f:07e151a9-8ad3-4bd1-bb69-54a4f5eeea15"
+        }
+      }
+    }
+  ]
+}

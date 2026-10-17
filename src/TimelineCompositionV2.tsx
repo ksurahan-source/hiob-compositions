@@ -42,6 +42,8 @@ import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
 import { UGC_TEXT_PROFILE, ugcTextLayout, ugcTextMotion } from './lib/ugcText';
 import { ORGANIC_TEXT_PROFILE, isOrganicTextProfile, organicTextMotion, organicEmphasisState, assertOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics } from './lib/organicText.mjs';
 import { nativeShotEffectActive, validateNativeShotEffect, NATIVE_SHOT_EFFECTS_CONTRACT } from './lib/nativeShotEffects.mjs';
+import {validateNativeStyle, type NativeStyle} from './lib/nativeStyle.mjs';
+import {NativeStyleLayer} from './NativeStyleLayer';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -1399,13 +1401,26 @@ function OrganicText({clip, parentStyle}: {clip: RenderClip; parentStyle: React.
         for (const span of spans) {
           parts.push(characters.slice(cursor,span.start).join(''));
           const state = organicEmphasisState(box,span,frame);
-          parts.push(<span key={`${span.start}:${span.end}`} data-semantic-active={state.active} style={{display:'inline-block', transform:state.transform, color:state.color}}>{span.text}</span>);
+          parts.push(<span key={`${span.start}:${span.end}`} data-semantic-active={state.active} style={{display:'inline-block', transform:state.transform, color:state.color,
+            // A transparent gradient fill on the line must not erase a semantic color.
+            WebkitTextFillColor:state.color}}>{span.text}</span>);
           cursor = span.end;
         }
         parts.push(characters.slice(cursor).join(''));
         const fill = box.fill;
-        return <div key={lineIndex} style={{height:box.fontSize*box.lineHeight,whiteSpace:'pre',
-          ...(fill ? {backgroundImage:`linear-gradient(${fill.angle}deg, ${fill.colors.join(', ')})`,backgroundClip:'text',WebkitBackgroundClip:'text',color:'transparent'} : {})}}>{parts}</div>;
+        if (!fill) return <div key={lineIndex} style={{height:box.fontSize*box.lineHeight,whiteSpace:'pre'}}>{parts}</div>;
+        // CSS text shadows paint above background-clip:text. Keep the authored
+        // stroke/shadow behind an independent fill pass so dark shadows cannot
+        // cover the bright gradient. Both passes keep the identical inline flow.
+        return <div key={lineIndex} style={{height:box.fontSize*box.lineHeight,whiteSpace:'pre',position:'relative'}}>
+          <div aria-hidden style={{position:'absolute',inset:0,color:'transparent',WebkitTextFillColor:'transparent'}}>
+            {parts.map((part, index) => typeof part === 'string' ? part : <span key={index} style={{...(part as React.ReactElement<{style:React.CSSProperties}>).props.style,
+              color:'transparent',WebkitTextFillColor:'transparent'}}>{(part as React.ReactElement<{children:React.ReactNode}>).props.children}</span>)}
+          </div>
+          <div style={{position:'relative',backgroundImage:`linear-gradient(${fill.angle}deg, ${fill.colors.join(', ')})`,
+            backgroundClip:'text',WebkitBackgroundClip:'text',color:'transparent',WebkitTextFillColor:'transparent',
+            textShadow:'none',WebkitTextStroke:'0px transparent'}}>{parts}</div>
+        </div>;
       })}
     </div>
   </AbsoluteFill>;
@@ -1844,6 +1859,12 @@ export function TimelineCompositionV2(props: RenderProps) {
     });
   // Voice time windows for audio ducking (ED-09).
   const voiceWindows = speechWindows(sorted, props.mix);
+  const nativeLayers = useMemo(() => props.clips.flatMap(clip => {
+    const value = clip.attributes?.native_style;
+    if (value === undefined) return [];
+    validateNativeStyle(value, {clip, clips:props.clips, width:props.width, height:props.height, fps});
+    return (value as NativeStyle).layers.map(layer => ({clip, layer}));
+  }).sort((a,b)=>a.layer.zIndex-b.layer.zIndex), [props.clips,props.width,props.height,fps]);
   // Scene-cut frames (hero/background visual entrances) drive the light-leak flashes.
   const transitionFrames = sorted
     .filter((clip) => {
@@ -1864,6 +1885,17 @@ export function TimelineCompositionV2(props: RenderProps) {
               <ClipRenderer clip={clip} mix={props.mix} proofCutawayWindows={proofCutawayWindows} voiceWindows={voiceWindows} />
             </Sequence>
           );
+        })}
+        {nativeLayers.map(({clip,layer}) => {
+          const absoluteStart = clip.startMs + layer.startMs;
+          const durationMs = layer.endMs-layer.startMs;
+          return <Sequence key={`native-style-${clip.id}-${layer.id}`} from={msToStartFrame(absoluteStart,fps)} durationInFrames={msToDurationFrames(durationMs,fps)}>
+            <NativeStyleLayer layer={layer}>
+              {layer.kind === 'text' && <OrganicText clip={{...clip,id:`${clip.id}:${layer.id}`,startMs:absoluteStart,durationMs,textContent:layer.sourceText,
+                trackKind:'caption',assetKind:undefined,url:undefined,effects:[],keyframes:[],transforms:{x:0,y:0,scale:1,rotation:0,opacity:1},
+                attributes:{text_profile:'organic-v2',text_style:layer.textStyle}}} parentStyle={{opacity:1}} />}
+            </NativeStyleLayer>
+          </Sequence>;
         })}
         {/* EDIT-4.1: emoji overlays — rendered as a second pass so they float above all clips */}
         {sorted.flatMap((clip) => {

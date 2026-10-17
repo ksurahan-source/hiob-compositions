@@ -1,0 +1,14 @@
+import type {OrganicTextStyle, OrganicRect} from './organicText.mjs';
+export const NATIVE_STYLE_CONTRACT: 'native-style-v1';
+export const NATIVE_STYLE_IDS: readonly string[];
+export const NATIVE_SHAPE_PRESETS: readonly string[];
+export type NativeShapePreset = 'stamp'|'comic-frame'|'halftone'|'ink'|'rule'|'paper'|'tape'|'scanline'|'glitch-bars'|'sparkle'|'grid'|'arrow';
+export type NativeLayerCommon = {id:string;kind:'shape'|'text';startMs:number;endMs:number;zIndex:number;opacity:number};
+export type NativeShapeLayer = NativeLayerCommon & {kind:'shape';preset:NativeShapePreset;rect:{x:number;y:number;width:number;height:number};colors:[string,string];strokeWidth:number;
+  motion:{entrance:'none'|'stamp'|'wipe'|'slide';entranceMs:number;exit:'none'|'fade';exitMs:number}};
+export type NativeTextLayer = NativeLayerCommon & {kind:'text';sourceClipId:string;sourceText:string;textStyle:OrganicTextStyle;mask:'none'|'block-reveal'};
+export type NativeStyle = {contract:'native-style-v1';styleId:'reaction'|'comic'|'narrative';version:1;observationId:string;safeArea:OrganicRect;
+  protectedRegions:{x:number;y:number;width:number;height:number;startMs:number;endMs:number;id?:string;role?:string}[];layers:(NativeShapeLayer|NativeTextLayer)[]};
+export function validateNativeStyle(value:unknown,context:{clip:object;clips?:object[];tracks?:object[];width?:number;height?:number;fps?:number}):{valid:true;layers:number;contract:'native-style-v1'};
+export function nativeShapeBounds(layer:NativeShapeLayer,width?:number,height?:number):OrganicRect[];
+export function nativeLayerMotion(layer:NativeShapeLayer|NativeTextLayer,frame:number,fps:number):{opacity:number;scale:number;translateX:number;reveal:number};
