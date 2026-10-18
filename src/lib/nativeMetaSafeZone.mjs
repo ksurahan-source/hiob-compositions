@@ -4,7 +4,7 @@ import {validateNativeStyle} from './nativeStyle.mjs';
 export function nativeClipRenderKind(clip) {
  const kind=clip.trackKind??clip.track_kind;
  if(clip.assetKind==='audio'||['audio','music','sfx'].includes(kind))return 'audio';
- if(['image','video'].includes(clip.assetKind)||(['video','overlay'].includes(kind)&&!!clip.url))return 'visual';
+ if(clip.url&&(['image','video'].includes(clip.assetKind)||['video','overlay'].includes(kind)))return 'visual';
  return 'text';
 }
 /** Unmeasured text is repairable, never presumed safe from its preset name. */
@@ -13,6 +13,7 @@ export function assertNativeMetaSafeZone(props) {
  for(const clip of clips){
   if(clip.attributes?.native_style!==undefined)validateNativeStyle(clip.attributes.native_style,{clip,clips,width,height,fps});
   const kind=clip.trackKind??clip.track_kind;
+  if(clip.effects?.some(e=>e.kind==='watermark'&&e.disabled!==true))throw Object.assign(new Error('ORGANIC_TEXT_MEASUREMENT_REQUIRED: Watermark logos need a measured safe-zone renderer.'),{code:'ORGANIC_TEXT_MEASUREMENT_REQUIRED'});
   const rendered=nativeClipRenderKind(clip);
   if(rendered==='audio')continue;
   if(rendered==='visual'){

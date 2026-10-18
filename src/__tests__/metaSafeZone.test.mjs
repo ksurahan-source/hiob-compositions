@@ -27,4 +27,6 @@ test('unused URLs cannot hide caption text and non-background visual overlays fa
  assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind:'caption',url:'unused',textContent:'CTA'}]}));
  for(const trackKind of ['overlay','title','caption'])assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind,assetKind:'image',url:'logo',transforms:{y:1}}]}));
  assert.equal(assertNativeMetaSafeZone({clips:[{trackKind:'music',assetKind:'audio',url:'music'}]}).geometryChecked,true);
+ assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind:'video',assetKind:'video',textContent:'CTA',attributes:{social_proof_wording:'CTA'}}]}));
+ assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind:'title',effects:[{kind:'watermark',params:{text:'BRAND'}}]}]}));
 });
