@@ -41,6 +41,7 @@ import { EASING_FN } from './lib/easing';
 import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
 import { UGC_TEXT_PROFILE, ugcTextLayout, ugcTextMotion } from './lib/ugcText';
 import { ORGANIC_TEXT_PROFILE, isOrganicTextProfile, organicTextMotion, organicEmphasisState, assertOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics } from './lib/organicText.mjs';
+import {assertNativeMetaSafeZone} from './lib/nativeMetaSafeZone.mjs';
 import { nativeShotEffectActive, validateNativeShotEffect, NATIVE_SHOT_EFFECTS_CONTRACT } from './lib/nativeShotEffects.mjs';
 import {validateNativeStyle, type NativeStyle} from './lib/nativeStyle.mjs';
 import {NativeStyleLayer} from './NativeStyleLayer';
@@ -1826,6 +1827,7 @@ function clampHeadlineTitleToHook(clips: RenderClip[]): RenderClip[] {
 }
 
 export function TimelineCompositionV2(props: RenderProps) {
+  useMemo(() => assertNativeMetaSafeZone(props), [props]);
   const { fps } = useVideoConfig();
   // Resolve the run's locale ONCE; absent/unknown ⇒ ko (byte-identical). The
   // resolved config flows to caption/title renderers via LocaleConfigContext.

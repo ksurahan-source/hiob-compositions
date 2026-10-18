@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {authorOrganicTextLayout,validateOrganicTextLayout} from '../lib/organicText.mjs';
+import {assertNativeMetaSafeZone} from '../lib/nativeMetaSafeZone.mjs';
 const input=(patch={})=>({text:'승인 원문 보존',kind:'caption',measureText:(s,size)=>({width:s.length*size*.6}),measurementId:'test-explicit-metrics',
  font:{fontFamily:'Black Han Sans',fontWeight:400},startMs:0,durationMs:1000,fps:30,fontSizes:[56],widths:[600],placements:[{y:900}],...patch});
 test('native authoring resolves mandatory safety when caller omits the rectangle',()=>{
@@ -12,4 +13,8 @@ test('full-canvas native authoring cannot admit text behind Meta UI',()=>{
 test('stored native geometry is rechecked against policy even with a widened rectangle',()=>{
  const style=authorOrganicTextLayout(input({safeArea:{left:90,top:270,right:918,bottom:1248}}));
  assert.throws(()=>validateOrganicTextLayout({...style,y:1500,safeArea:{left:0,top:0,right:1080,bottom:1920}}),/UNSAFE_BOUNDS/);
+});
+test('legacy, ugc-v3 and omitted text profiles cannot bypass measured native admission',()=>{
+ for(const text_profile of [undefined,'ugc-v3'])assert.throws(()=>assertNativeMetaSafeZone({clips:[{id:'caption',trackKind:'caption',textContent:'승인 원문',startMs:0,durationMs:1000,attributes:{text_profile}}]}),{code:'ORGANIC_TEXT_MEASUREMENT_REQUIRED'});
+ assert.equal(assertNativeMetaSafeZone({clips:[{id:'background',trackKind:'video',url:'owned-video'}]}).geometryChecked,true);
 });
