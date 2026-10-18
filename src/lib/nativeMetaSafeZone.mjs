@@ -10,6 +10,7 @@ export function nativeClipRenderKind(clip) {
 /** Unmeasured text is repairable, never presumed safe from its preset name. */
 export function assertNativeMetaSafeZone(props) {
  const {clips=[],width=1080,height=1920,fps=30}=props;
+ if(width!==1080||height!==1920)throw Object.assign(new Error('NATIVE_RENDER_UNSUPPORTED_FORMAT: Native measured layouts currently support 1080x1920; use the supported shared edit for other canvases.'),{code:'NATIVE_RENDER_UNSUPPORTED_FORMAT'});
  for(const clip of clips){
   if(clip.attributes?.native_style!==undefined)validateNativeStyle(clip.attributes.native_style,{clip,clips,width,height,fps});
   const kind=clip.trackKind??clip.track_kind;

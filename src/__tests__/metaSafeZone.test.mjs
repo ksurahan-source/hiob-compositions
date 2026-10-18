@@ -30,3 +30,7 @@ test('unused URLs cannot hide caption text and non-background visual overlays fa
  assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind:'video',assetKind:'video',textContent:'CTA',attributes:{social_proof_wording:'CTA'}}]}));
  assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind:'title',effects:[{kind:'watermark',params:{text:'BRAND'}}]}]}));
 });
+test('unsupported native canvases cannot reuse portrait measurements',()=>{
+ const style=authorOrganicTextLayout(input());
+ for(const canvas of [{width:1920,height:1080},{width:1080,height:1080}])assert.throws(()=>assertNativeMetaSafeZone({...canvas,clips:[{trackKind:'caption',textContent:input().text,startMs:0,durationMs:1000,attributes:{text_profile:style.layoutVersion,text_style:style}}]}),{code:'NATIVE_RENDER_UNSUPPORTED_FORMAT'});
+});
