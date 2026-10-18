@@ -41,6 +41,7 @@ import { EASING_FN } from './lib/easing';
 import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
 import { UGC_TEXT_PROFILE, ugcTextLayout, ugcTextMotion } from './lib/ugcText';
 import { ORGANIC_TEXT_PROFILE, isOrganicTextProfile, organicTextMotion, organicEmphasisState, assertOrganicTextLayout, validateOrganicTextLayout, verifyOrganicTextMetrics } from './lib/organicText.mjs';
+import {assertNativeMetaSafeZone,nativeClipRenderKind} from './lib/nativeMetaSafeZone.mjs';
 import { nativeShotEffectActive, validateNativeShotEffect, NATIVE_SHOT_EFFECTS_CONTRACT } from './lib/nativeShotEffects.mjs';
 import {validateNativeStyle, type NativeStyle} from './lib/nativeStyle.mjs';
 import {NativeStyleLayer} from './NativeStyleLayer';
@@ -1489,13 +1490,10 @@ function ClipRenderer({ clip, mix, proofCutawayWindows, voiceWindows }: { clip: 
     transformStyle.mixBlendMode = effects.blendMode as React.CSSProperties['mixBlendMode'];
   }
 
-  const isAudioAsset = clip.assetKind === 'audio';
+  const isAudioAsset = nativeClipRenderKind(clip) === 'audio';
   // CDN stills often lack mime/extension (Seedream signed URLs) — trackKind video+url
   // is still a visual. Without this, isVisualAsset=false → 좁쌀 hard-ban never fires.
-  const isVisualAsset =
-    clip.assetKind === 'image' ||
-    clip.assetKind === 'video' ||
-    ((clip.trackKind === 'video' || clip.trackKind === 'overlay') && !!clip.url && !isAudioAsset);
+  const isVisualAsset = nativeClipRenderKind(clip) === 'visual';
 
   if (isAudioAsset || clip.trackKind === 'audio' || clip.trackKind === 'music' || clip.trackKind === 'sfx') {
     if (!clip.url) return null;
@@ -1826,6 +1824,7 @@ function clampHeadlineTitleToHook(clips: RenderClip[]): RenderClip[] {
 }
 
 export function TimelineCompositionV2(props: RenderProps) {
+  useMemo(() => assertNativeMetaSafeZone(props), [props]);
   const { fps } = useVideoConfig();
   // Resolve the run's locale ONCE; absent/unknown ⇒ ko (byte-identical). The
   // resolved config flows to caption/title renderers via LocaleConfigContext.

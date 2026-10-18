@@ -1,3 +1,4 @@
+import {resolveMetaSafeArea} from './meta-safe-zone.mjs';
 /** Pure authoring/verification shared by Studio and the render composition. No DOM or font guesses. */
 export const ORGANIC_TEXT_PROFILE = 'organic-v1';
 export const ORGANIC_TEXT_V2_PROFILE = 'organic-v2';
@@ -257,7 +258,7 @@ export function validateOrganicTextLayout(style, context = {}) {
   let bounds;
   for (let frame = 0; frame < total; frame++) {
     const current = organicTextBoundsAtFrame(style, frame);
-    if (!inside(current, style.safeArea)) fail('ORGANIC_TEXT_UNSAFE_BOUNDS', `Painted text crosses the safe area at frame ${frame}.`);
+    if (!inside(current, resolveMetaSafeArea(style.safeArea))) fail('ORGANIC_TEXT_UNSAFE_BOUNDS', `Painted text crosses the Meta safe area at frame ${frame}.`);
     // Sequence.from rounds to an output frame; protection must use the same global clock.
     const atMs = (Math.round(style.startMs / 1000 * style.fps) + frame) / style.fps * 1000;
     for (const region of regions) {
@@ -297,7 +298,7 @@ export function authorOrganicTextLayout(input) {
   if (typeof measure !== 'function' || !measurementId) fail('ORGANIC_TEXT_MEASUREMENT_REQUIRED', 'Measure the exact loaded font before authoring.');
   if (!normalize(text)) fail('ORGANIC_TEXT_SOURCE_MISMATCH', 'Nonempty original text is required.');
   if(input.lineGroups!==undefined && (input.layoutVersion!==ORGANIC_TEXT_V2_PROFILE || !Array.isArray(input.lineGroups) || input.lineGroups.length<1 || input.lineGroups.length>2 || input.lineGroups.some(line=>typeof line!=='string'||!line.trim()||/\n/u.test(line)) || normalize(input.lineGroups.join(' '))!==normalize(text))) fail('ORGANIC_TEXT_SOURCE_MISMATCH','Preferred lines must retain the exact source token sequence.');
-  const safe = rect(safeArea ?? {});
+  const safe = resolveMetaSafeArea(safeArea === undefined ? undefined : rect(safeArea));
   if (!validRect(safe)) fail('ORGANIC_TEXT_LAYOUT_INVALID', 'A current explicit safe area is required.');
   const widths = input.widths ?? [32, 96, 160, 224].map(padding => safe.right - safe.left - padding).filter(width => width > 0);
   const sizes = input.fontSizes ?? (kind === 'title' ? [96,88,80,72] : [76,72,68,64,60]);

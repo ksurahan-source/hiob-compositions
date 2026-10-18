@@ -8,7 +8,9 @@
     "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx",
     "./text-layout": "./src/lib/organicText.mjs",
     "./shot-effects": "./src/lib/nativeShotEffects.mjs",
-    "./native-style": "./src/lib/nativeStyle.mjs"
+    "./native-style": "./src/lib/nativeStyle.mjs",
+    "./meta-safe-zone": "./src/lib/meta-safe-zone.mjs",
+    "./native-meta-safe-zone": "./src/lib/nativeMetaSafeZone.mjs"
   },
   "files": [
     "src"
