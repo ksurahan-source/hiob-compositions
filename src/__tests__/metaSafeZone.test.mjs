@@ -18,3 +18,8 @@ test('legacy, ugc-v3 and omitted text profiles cannot bypass measured native adm
  for(const text_profile of [undefined,'ugc-v3'])assert.throws(()=>assertNativeMetaSafeZone({clips:[{id:'caption',trackKind:'caption',textContent:'승인 원문',startMs:0,durationMs:1000,attributes:{text_profile}}]}),{code:'ORGANIC_TEXT_MEASUREMENT_REQUIRED'});
  assert.equal(assertNativeMetaSafeZone({clips:[{id:'background',trackKind:'video',url:'owned-video'}]}).geometryChecked,true);
 });
+test('a measured box cannot certify a different legacy renderer or an unsupported overlay text branch',()=>{
+ const style=authorOrganicTextLayout(input());
+ for(const text_profile of [undefined,'ugc-v3'])assert.throws(()=>assertNativeMetaSafeZone({clips:[{id:'caption',trackKind:'caption',textContent:input().text,startMs:0,durationMs:1000,attributes:{text_profile,text_style:style}}]}));
+ assert.throws(()=>assertNativeMetaSafeZone({clips:[{id:'overlay',trackKind:'overlay',textContent:input().text,startMs:0,durationMs:1000,attributes:{text_profile:'organic-v1',text_style:style}}]}));
+});

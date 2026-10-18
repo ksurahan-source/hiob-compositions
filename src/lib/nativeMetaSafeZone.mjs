@@ -10,6 +10,7 @@ export function assertNativeMetaSafeZone(props) {
   if(!['title','caption','overlay'].includes(kind)||clip.url||!(clip.textContent??clip.text_content??'').trim())continue;
   const style=clip.attributes?.text_style;
   if(!['organic-v1','organic-v2'].includes(style?.layoutVersion))throw Object.assign(new Error('ORGANIC_TEXT_MEASUREMENT_REQUIRED: Prepare the exact existing text with native_edit.prepare_text before rendering.'),{code:'ORGANIC_TEXT_MEASUREMENT_REQUIRED'});
+  if(kind==='overlay'||clip.attributes?.text_profile!==style.layoutVersion)throw Object.assign(new Error('ORGANIC_TEXT_LAYOUT_INVALID: The measured text profile must select the same supported title/caption renderer.'),{code:'ORGANIC_TEXT_LAYOUT_INVALID'});
   validateOrganicTextLayout(style,{text:clip.textContent??clip.text_content,startMs:clip.startMs??clip.start_ms,
    durationMs:clip.durationMs??clip.duration_ms,fps,clip,protectedRegions:clip.attributes?.organic_text_v1?.protected_regions??[]});
  }
