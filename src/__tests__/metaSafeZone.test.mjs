@@ -23,3 +23,8 @@ test('a measured box cannot certify a different legacy renderer or an unsupporte
  for(const text_profile of [undefined,'ugc-v3'])assert.throws(()=>assertNativeMetaSafeZone({clips:[{id:'caption',trackKind:'caption',textContent:input().text,startMs:0,durationMs:1000,attributes:{text_profile,text_style:style}}]}));
  assert.throws(()=>assertNativeMetaSafeZone({clips:[{id:'overlay',trackKind:'overlay',textContent:input().text,startMs:0,durationMs:1000,attributes:{text_profile:'organic-v1',text_style:style}}]}));
 });
+test('unused URLs cannot hide caption text and non-background visual overlays fail closed',()=>{
+ assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind:'caption',url:'unused',textContent:'CTA'}]}));
+ for(const trackKind of ['overlay','title','caption'])assert.throws(()=>assertNativeMetaSafeZone({clips:[{trackKind,assetKind:'image',url:'logo',transforms:{y:1}}]}));
+ assert.equal(assertNativeMetaSafeZone({clips:[{trackKind:'music',assetKind:'audio',url:'music'}]}).geometryChecked,true);
+});
