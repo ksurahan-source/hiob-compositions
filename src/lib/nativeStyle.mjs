@@ -1,4 +1,5 @@
 import {validateOrganicTextLayout} from './organicText.mjs';
+import {resolveMetaSafeArea} from './meta-safe-zone.mjs';
 
 export const NATIVE_STYLE_CONTRACT = 'native-style-v1';
 export const NATIVE_STYLE_IDS = Object.freeze(['reaction', 'comic', 'narrative']);
@@ -70,7 +71,7 @@ export function validateNativeStyle(value, context = {}) {
   if (value.contract !== NATIVE_STYLE_CONTRACT || value.version !== 1 || !NATIVE_STYLE_IDS.includes(value.styleId) || typeof value.observationId !== 'string' || !value.observationId.trim() || value.observationId.length > 200 || /[\u0000-\u001f]/u.test(value.observationId) ||
     !range(width, 1, 16384) || !range(height, 1, 16384) || !range(fps, 1, 120) || !clip ||
     !range(start(clip), 0, Number.MAX_SAFE_INTEGER, true) || !range(duration(clip), 1, 1200000, true)) fail('Contract, observation, canvas and owner clock are required.');
-  const safe = rect(value.safeArea);
+  const safe = resolveMetaSafeArea(rect(value.safeArea),{width,height});
   if (!inside(safe, {left: 0, top: 0, right: width, bottom: height})) fail('Safe area exceeds the canvas.');
   if (!Array.isArray(value.protectedRegions) || value.protectedRegions.length > 100) fail('At most 100 observed protection windows are supported.');
   const protectedBoxes = value.protectedRegions.map(region);
