@@ -1,5 +1,6 @@
 import {META_SAFE_ZONE_POLICY} from './meta-safe-zone.mjs';
 import {validateOrganicTextLayout} from './organicText.mjs';
+import {validateBrandedGraphic} from './brandedGraphic.mjs';
 import {validateNativeStyle} from './nativeStyle.mjs';
 export function nativeClipRenderKind(clip) {
  const kind=clip.trackKind??clip.track_kind;
@@ -12,6 +13,7 @@ export function assertNativeMetaSafeZone(props) {
  const {clips=[],width=1080,height=1920,fps=30}=props;
  if(width!==1080||height!==1920)throw Object.assign(new Error('NATIVE_RENDER_UNSUPPORTED_FORMAT: Native measured layouts currently support 1080x1920; use the supported shared edit for other canvases.'),{code:'NATIVE_RENDER_UNSUPPORTED_FORMAT'});
  for(const clip of clips){
+  if(clip.attributes?.branded_graphic_v1!==undefined)validateBrandedGraphic(clip.attributes.branded_graphic_v1,{clip,clips,width,height,fps});
   if(clip.attributes?.native_style!==undefined)validateNativeStyle(clip.attributes.native_style,{clip,clips,width,height,fps});
   const kind=clip.trackKind??clip.track_kind;
   if(clip.effects?.some(e=>e.kind==='watermark'&&e.disabled!==true))throw Object.assign(new Error('ORGANIC_TEXT_MEASUREMENT_REQUIRED: Watermark logos need a measured safe-zone renderer.'),{code:'ORGANIC_TEXT_MEASUREMENT_REQUIRED'});

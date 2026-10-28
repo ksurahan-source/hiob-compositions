@@ -9,6 +9,7 @@
     "./text-layout": "./src/lib/organicText.mjs",
     "./shot-effects": "./src/lib/nativeShotEffects.mjs",
     "./native-style": "./src/lib/nativeStyle.mjs",
+    "./branded-graphic": "./src/lib/brandedGraphic.mjs",
     "./meta-safe-zone": "./src/lib/meta-safe-zone.mjs",
     "./native-meta-safe-zone": "./src/lib/nativeMetaSafeZone.mjs"
   },
@@ -25,7 +26,7 @@
     "remotion": "^4.0.0"
   },
   "scripts": {
-    "test:ugc": "node --experimental-strip-types --test src/__tests__/audioMix.test.ts src/__tests__/ugcText.test.ts src/__tests__/organicText.test.mjs src/__tests__/nativeShotEffects.test.mjs src/__tests__/nativeStyle.test.mjs",
+    "test:ugc": "node --experimental-strip-types --test src/__tests__/audioMix.test.ts src/__tests__/ugcText.test.ts src/__tests__/organicText.test.mjs src/__tests__/nativeShotEffects.test.mjs src/__tests__/nativeStyle.test.mjs src/__tests__/brandedGraphic.test.mjs",
     "typecheck": "tsc --noEmit --skipLibCheck --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 --allowImportingTsExtensions --esModuleInterop src/TimelineCompositionV2.tsx verification/ugc-v3/entry.tsx",
     "test:motion": "node --test src/__tests__/implicitMotion.test.mjs"
   },

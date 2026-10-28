@@ -76,10 +76,10 @@ export const FilmGrain: React.FC<{
               result="saturated"
             />
             {/* Blend grain with source graphic */}
-            <feComposite
+            <feBlend
               in="saturated"
               in2="SourceGraphic"
-              operator="multiply"
+              mode="multiply"
               result="output"
             />
           </filter>

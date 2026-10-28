@@ -45,6 +45,8 @@ import {assertNativeMetaSafeZone,nativeClipRenderKind} from './lib/nativeMetaSaf
 import { nativeShotEffectActive, validateNativeShotEffect, NATIVE_SHOT_EFFECTS_CONTRACT } from './lib/nativeShotEffects.mjs';
 import {validateNativeStyle, type NativeStyle} from './lib/nativeStyle.mjs';
 import {NativeStyleLayer} from './NativeStyleLayer';
+import {BrandedGraphicLayer} from './BrandedGraphicLayer';
+import {validateBrandedGraphic,type BrandedGraphic} from './lib/brandedGraphic.mjs';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -1858,6 +1860,7 @@ export function TimelineCompositionV2(props: RenderProps) {
     });
   // Voice time windows for audio ducking (ED-09).
   const voiceWindows = speechWindows(sorted, props.mix);
+  for (const clip of props.clips) if(clip.attributes?.branded_graphic_v1!==undefined) validateBrandedGraphic(clip.attributes.branded_graphic_v1,{clip,clips:props.clips,width:props.width,height:props.height,fps});
   const nativeLayers = useMemo(() => props.clips.flatMap(clip => {
     const value = clip.attributes?.native_style;
     if (value === undefined) return [];
@@ -1882,6 +1885,7 @@ export function TimelineCompositionV2(props: RenderProps) {
           return (
             <Sequence key={clip.id} from={Math.max(0, from)} durationInFrames={duration}>
               <ClipRenderer clip={clip} mix={props.mix} proofCutawayWindows={proofCutawayWindows} voiceWindows={voiceWindows} />
+              {clip.attributes?.branded_graphic_v1!==undefined && <BrandedGraphicLayer value={clip.attributes.branded_graphic_v1 as BrandedGraphic} ownerStartMs={clip.startMs}/>}
             </Sequence>
           );
         })}
