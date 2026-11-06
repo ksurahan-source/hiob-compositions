@@ -25,8 +25,14 @@ vi.mock('remotion', async () => {
     const progress = options.easing ? options.easing(raw) : raw;
     return outputRange[index] + (outputRange[index + 1] - outputRange[index]) * progress;
   };
+  const actual = await vi.importActual<typeof import('remotion')>('remotion');
   return {
     VERSION: '4.0.513',
+    Easing: actual.Easing,
+    spring: actual.spring,
+    delayRender: () => 0,
+    continueRender: () => undefined,
+    cancelRender: () => undefined,
     AbsoluteFill: container,
     Audio: media,
     Img: media,

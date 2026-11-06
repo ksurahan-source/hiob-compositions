@@ -29,3 +29,17 @@ export const ASPECT_DIMENSIONS = {
 } as const;
 
 export const DEFAULT_FPS = 30;
+
+// Text style pack: title/caption presets picked by mood/situation (attributes.text_style).
+export {
+  TEXT_STYLES,
+  TEXT_STYLE_IDS,
+  TEXT_STYLE_CATALOG,
+  MOODS,
+  getTextStyle,
+  textStylesForMood,
+  isMood,
+  TextStyleTitle,
+  TextStyleCaption,
+} from './textStyles';
+export type { TextStyle, Mood, PresetMeta as TextStyleMeta } from './textStyles';
