@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "moods": [
+    "trust",
+    "urgent",
+    "story",
+    "meme",
+    "luxury",
+    "info"
+  ],
+  "styles": [
+    {
+      "id": "ledger",
+      "nameKo": "신뢰 밴드",
+      "nameEn": "Ledger Band",
+      "mood": "trust",
+      "situations": [
+        "후기",
+        "인증",
+        "설명",
+        "브랜드 소개"
+      ],
+      "description": "근거나 인증 사실을 차분하게 전달할 때, 어떤 배경에서도 읽히는 어두운 띠 위에 담백하게 올립니다.",
+      "inspiredBy": [
+        "https://github.com/vshukla7/remotion-captions-themes",
+        "https://github.com/ahgsql/remotion-subtitles"
+      ]
+    },
+    {
+      "id": "stat-stamp",
+      "nameKo": "숫자 인증 도장",
+      "nameEn": "Stat Stamp",
+      "mood": "trust",
+      "situations": [
+        "수치",
+        "인증",
+        "판매량",
+        "후기 수"
+      ],
+      "description": "판매량·만족도·테스트 통과처럼 숫자와 검증 결과를 강조할 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates"
+      ]
+    },
+    {
+      "id": "quote-card",
+      "nameKo": "후기 인용 카드",
+      "nameEn": "Quote Card",
+      "mood": "trust",
+      "situations": [
+        "후기",
+        "리뷰",
+        "추천",
+        "고객 인터뷰"
+      ],
+      "description": "실제 고객 후기 문장을 인용할 때, 큰 따옴표가 들어간 카드로 말한 사람의 목소리처럼 보여줍니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates"
+      ]
+    },
+    {
+      "id": "slam-bar",
+      "nameKo": "쾅 박스",
+      "nameEn": "Slam Bar",
+      "mood": "urgent",
+      "situations": [
+        "할인",
+        "마감 임박",
+        "오프닝",
+        "이벤트"
+      ],
+      "description": "할인·마감처럼 첫 1초에 시선을 붙잡아야 할 때, 노란·빨간 박스가 쾅 떨어지며 흔들립니다.",
+      "inspiredBy": [
+        "https://github.com/ahgsql/remotion-subtitles",
+        "https://github.com/av/remotion-bits"
+      ]
+    },
+    {
+      "id": "countdown-pill",
+      "nameKo": "마감 알약",
+      "nameEn": "Countdown Pill",
+      "mood": "urgent",
+      "situations": [
+        "마감 임박",
+        "타임세일",
+        "할인",
+        "재고 소진"
+      ],
+      "description": "마감 시간이나 수량 한정을 알릴 때, 맥박처럼 뛰는 빨간 알약으로 지금 사야 할 이유를 보여줍니다.",
+      "inspiredBy": [
+        "https://github.com/vshukla7/remotion-captions-themes",
+        "https://github.com/reactvideoeditor/remotion-templates"
+      ]
+    },
+    {
+      "id": "notification-pop",
+      "nameKo": "푸시 알림",
+      "nameEn": "Notification Pop",
+      "mood": "urgent",
+      "situations": [
+        "CTA",
+        "할인",
+        "재입고",
+        "이벤트 공지"
+      ],
+      "description": "혜택이나 행동 유도를 알려줄 때, 휴대폰 알림이 내려오듯 자연스럽게 시선을 끌어당깁니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates"
+      ]
+    },
+    {
+      "id": "soft-glass",
+      "nameKo": "감성 유리판",
+      "nameEn": "Soft Glass",
+      "mood": "story",
+      "situations": [
+        "브이로그",
+        "감성",
+        "사연",
+        "오프닝"
+      ],
+      "description": "반투명 유리판 위로 부드러운 명조가 흐릿하게 맺히며, 잔잔한 이야기를 시작할 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/av/remotion-bits",
+        "https://github.com/vshukla7/remotion-captions-themes"
+      ]
+    },
+    {
+      "id": "letterbox-story",
+      "nameKo": "시네마 레터박스",
+      "nameEn": "Letterbox Story",
+      "mood": "story",
+      "situations": [
+        "오프닝",
+        "사연",
+        "비포애프터",
+        "브랜드필름"
+      ],
+      "description": "영화처럼 위아래 검은 띠가 내려오고 넓은 자간의 제목이 떠올라, 이야기형 광고를 열 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates"
+      ]
+    },
+    {
+      "id": "typewriter-diary",
+      "nameKo": "손글씨 일기",
+      "nameEn": "Typewriter Diary",
+      "mood": "story",
+      "situations": [
+        "일기",
+        "스토리",
+        "브이로그",
+        "첫 경험"
+      ],
+      "description": "개인적인 경험담을 꺼낼 때, 따뜻한 종이 위에 한 글자씩 써 내려가며 고백하듯 시작합니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates",
+        "https://github.com/av/remotion-bits"
+      ]
+    },
+    {
+      "id": "bounce-pop",
+      "nameKo": "통통 팝",
+      "nameEn": "Bounce Pop",
+      "mood": "meme",
+      "situations": [
+        "유머",
+        "밈",
+        "리액션",
+        "챌린지"
+      ],
+      "description": "두꺼운 외곽선의 동글한 글씨가 통통 튀어 들어와, 가볍고 웃긴 장면을 살릴 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/ahgsql/remotion-subtitles"
+      ]
+    },
+    {
+      "id": "glitch-meme",
+      "nameKo": "글리치 충격",
+      "nameEn": "Glitch Meme",
+      "mood": "meme",
+      "situations": [
+        "밈",
+        "반전",
+        "충격 고백",
+        "후킹"
+      ],
+      "description": "“실화냐” 같은 충격·반전 한마디를 화면이 깨지는 듯한 연출로 꽂을 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/av/remotion-bits"
+      ]
+    },
+    {
+      "id": "gold-serif",
+      "nameKo": "골드 명조",
+      "nameEn": "Gold Serif",
+      "mood": "luxury",
+      "situations": [
+        "프리미엄",
+        "브랜드 소개",
+        "신제품",
+        "선물"
+      ],
+      "description": "고급스러운 브랜드 메시지를 전할 때, 금빛 명조와 천천히 그어지는 실선으로 품격을 더합니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates",
+        "https://github.com/vshukla7/remotion-captions-themes"
+      ]
+    },
+    {
+      "id": "spotlight",
+      "nameKo": "스포트라이트",
+      "nameEn": "Spotlight",
+      "mood": "luxury",
+      "situations": [
+        "신제품 공개",
+        "프리미엄",
+        "티저",
+        "런칭"
+      ],
+      "description": "신제품을 처음 공개하는 순간에, 어둠 속 조명이 지나가며 제목을 드러내 기대감을 만듭니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates"
+      ]
+    },
+    {
+      "id": "step-chip",
+      "nameKo": "단계 칩",
+      "nameEn": "Step Chip",
+      "mood": "info",
+      "situations": [
+        "사용법",
+        "튜토리얼",
+        "단계별 안내",
+        "비교"
+      ],
+      "description": "사용 방법이나 순서를 1단계·2단계처럼 번호를 붙여 차근차근 안내할 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/av/remotion-bits",
+        "https://github.com/vshukla7/remotion-captions-themes"
+      ]
+    },
+    {
+      "id": "chapter-card",
+      "nameKo": "챕터 카드",
+      "nameEn": "Chapter Card",
+      "mood": "info",
+      "situations": [
+        "정보전달",
+        "목차",
+        "튜토리얼",
+        "비교"
+      ],
+      "description": "챕터 번호와 진행 막대가 있는 카드로, 긴 정보를 구간별로 나눠 보여줄 때 씁니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates",
+        "https://github.com/vshukla7/remotion-captions-themes"
+      ]
+    },
+    {
+      "id": "highlight-marker",
+      "nameKo": "형광펜 강조",
+      "nameEn": "Highlight Marker",
+      "mood": "info",
+      "situations": [
+        "핵심 요약",
+        "정보",
+        "꿀팁",
+        "비교"
+      ],
+      "description": "꼭 기억시킬 핵심 문구가 있을 때, 줄이 나온 뒤 형광펜이 그 구절 전체를 한 번 그어 줍니다.",
+      "inspiredBy": [
+        "https://github.com/reactvideoeditor/remotion-templates",
+        "https://github.com/vshukla7/remotion-captions-themes"
+      ]
+    }
+  ]
+}

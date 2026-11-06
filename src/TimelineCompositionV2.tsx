@@ -37,6 +37,7 @@ import { LightSweep } from './effects/lightSweep';
 import { EASING_FN } from './lib/easing';
 import { audioVolumeAt, speechWindows, type VoiceWindow } from './lib/audioMix';
 import { UGC_TEXT_PROFILE, UGC_SAFE_AREA, ugcTextLayout } from './lib/ugcText';
+import { TextStyleCaption, TextStyleTitle, getTextStyle, type TextStyle } from './textStyles';
 // #5 typography: caption/title use a heavy display face (Black Han Sans),
 // LOADED via @remotion/google-fonts so it is identical in the Studio <Player> preview
 // AND the Lambda render (a bare system-font stack would resolve differently per
@@ -1586,10 +1587,48 @@ function AudioClipRenderer({
   );
 }
 
+// TEXT STYLE PACK (2026-11-06): a title/caption clip that carries attributes.text_style
+// with a known style id renders through that style's Title/Caption. Styles are laid out
+// for the 1080x1920 canvas, so other aspects keep the built-in look. Clips without the
+// attribute (every run before this change) render exactly as before.
+const STYLED_TEXT_CANVAS = { width: 1080, height: 1920 } as const;
+
+function useClipTextStyle(clip: RenderClip): TextStyle | undefined {
+  const { width, height } = useVideoConfig();
+  if (clip.trackKind !== 'title' && clip.trackKind !== 'caption') return undefined;
+  if (width !== STYLED_TEXT_CANVAS.width || height !== STYLED_TEXT_CANVAS.height) return undefined;
+  return getTextStyle(clipAttributes(clip).text_style);
+}
+
+function styledCaptionLines(text: string): string[] {
+  return text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
+function StyledTextClip({ clip, runtime, style }: { clip: RenderClip; runtime: ClipRuntime; style: TextStyle }) {
+  const text = clip.textContent ?? '';
+  const emphasis = clipAttributes(clip).emphasis;
+  return (
+    <AbsoluteFill style={runtime.transformStyle}>
+      {clip.trackKind === 'title' ? (
+        <TextStyleTitle style={style} text={text} durationInFrames={runtime.durationInFrames} />
+      ) : (
+        <TextStyleCaption
+          style={style}
+          lines={styledCaptionLines(text)}
+          durationInFrames={runtime.durationInFrames}
+          emphasis={typeof emphasis === 'string' && emphasis.trim() ? emphasis.trim() : undefined}
+        />
+      )}
+    </AbsoluteFill>
+  );
+}
+
 function TitleClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+  const textStyle = useClipTextStyle(clip);
   if (effectByKind(clip, 'watermark')) {
     return <Watermark clip={clip} containerStyle={runtime.transformStyle} />;
   }
+  if (textStyle) return <StyledTextClip clip={clip} runtime={runtime} style={textStyle} />;
   return (
     <AbsoluteFill style={{ ...titleContainer, ...runtime.transformStyle }}>
       <span style={{ ...titleText, fontFamily: captionFontFor(runtime.localeConfig) }}>{clip.textContent ?? ''}</span>
@@ -1598,9 +1637,11 @@ function TitleClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipR
 }
 
 function CaptionClipRenderer({ clip, runtime }: { clip: RenderClip; runtime: ClipRuntime }) {
+  const textStyle = useClipTextStyle(clip);
   if (effectByKind(clip, 'watermark')) {
     return <Watermark clip={clip} containerStyle={runtime.transformStyle} />;
   }
+  if (textStyle) return <StyledTextClip clip={clip} runtime={runtime} style={textStyle} />;
   return <DynamicCaption clip={clip} transformStyle={runtime.transformStyle} sceneType={runtime.sceneType} />;
 }
 

@@ -13,7 +13,9 @@
     ".": "./src/index.ts",
     "./TimelineCompositionV2": "./src/TimelineCompositionV2.tsx",
     "./frame-timeline": "./src/FrameTimelineComposition.tsx",
-    "./frame-timeline-model": "./src/frameTimelineModel.ts"
+    "./frame-timeline-model": "./src/frameTimelineModel.ts",
+    "./text-styles": "./src/textStyles/index.tsx",
+    "./text-styles/catalog.json": "./src/textStyles/catalog.json"
   },
   "files": [
     "src"
